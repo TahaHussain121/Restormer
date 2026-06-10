@@ -1,10 +1,16 @@
 .ipynb_checkpoints/
 *.pyc
-*.png
-*.tif
-*.jpg
+__pycache__/
+.DS_Store
+.venv/
+.eggs/
+basicsr.egg-info/
+
+# training outputs
+experiments/
+tb_logger/
+
+# model weights and data artifacts
 *.pth
 *.mat
 *.npy
-.DS_Store
-

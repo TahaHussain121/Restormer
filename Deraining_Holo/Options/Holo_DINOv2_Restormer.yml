@@ -1,0 +1,8 @@
+# Holo_DINOv2_Restormer config
+# TODO: implement in July
+# Start from Holo_Baseline_Restormer.yml and add:
+#   - DINOv2 feature extractor (frozen ViT-B/14)
+#   - Cross-attention injection in bottleneck (Perceive-IR style)
+#   - render dataroot for visual prior input
+#   - name: Holo_DINOv2_Restormer
+#   - experiments_root: experiments/Holo_DINOv2_Restormer

@@ -124,6 +124,16 @@ def imfrombytes(content, flag='color', float32=False):
         img = img.astype(np.float32) / 255.
     return img
 
+def imfrombytes_uint16(content):
+    img_array = np.frombuffer(content, dtype=np.uint8)
+    img = cv2.imdecode(img_array, cv2.IMREAD_UNCHANGED)
+    if img is None:
+        raise IOError('Failed to decode image')
+    if img.ndim == 2:
+        img = img[:, :, np.newaxis]  # (H, W) → (H, W, 1)
+    img = img.astype(np.float32) / 65535.
+    return img
+
 def imfrombytesDP(content, flag='color', float32=False):
     """Read an image from bytes.
 
