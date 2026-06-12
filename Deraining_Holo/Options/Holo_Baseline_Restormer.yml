@@ -1,3 +1,29 @@
+# =============================================================================
+# Holo Baseline Restormer — FULL ORIGINAL Restormer deraining recipe (300k).
+#
+# This config restores the upstream Restormer deraining training recipe
+# (total_iter=300000, full progressive patch schedule). The earlier 75k run is
+# obsolete (it never left progressive stage 1 / 128px).
+#
+# INTENTIONAL differences from the upstream deraining recipe:
+#   - network_g: inp_channels=1, out_channels=1   (CFR heatmaps are grayscale)
+#   - datasets:  type: Dataset_PairedImage_uint16 (uint16 PNG loader, /65535)
+#   - dataset paths point to our holo_image_dataset/{train,val}_{clean,noisy}
+#   - num_gpu: 1, num_worker_per_gpu: 2           (single A100 on HPC)
+#   - logger.save_checkpoint_freq: 2000           (HPC walltime resume safety)
+#   - logger.use_tb_logger: true                  (TensorBoard monitoring)
+#   - path.resume_state mechanism documented      (multi-job resume after kill)
+#
+#   NOTE (thesis): the upstream recipe assumes 8 GPUs => effective batch 64.
+#   We run 1 GPU => effective batch 8. This must be reported in the thesis.
+#
+#   - Progressive schedule truncated at native resolution: original 320/384
+#     stages would require reflect-padding 256x256 images, creating mirrored
+#     side-lobe artifacts that don't physically exist. The final three original
+#     stages (36k+36k+24k iters) are merged into one 96k-iter stage at 256
+#     (full image), batch 2.
+# =============================================================================
+
 # general settings
 name: Holo_Baseline_Restormer
 model_type: ImageCleanModel
@@ -10,8 +36,8 @@ datasets:
   train:
     name: TrainSet
     type: Dataset_PairedImage_uint16
-    dataroot_gt: /mnt/home/taha.hussain@ad.five-d.ai/holographic_image_dataset/train_clean
-    dataroot_lq: /mnt/home/taha.hussain@ad.five-d.ai/holographic_image_dataset/train_noisy
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holo_image_dataset/train_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holo_image_dataset/train_noisy
     geometric_augs: true
 
     filename_tmpl: '{}'
@@ -21,13 +47,13 @@ datasets:
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 2
-    batch_size_per_gpu: 4
+    batch_size_per_gpu: 8
 
     ### -------------Progressive training--------------------------
-    mini_batch_sizes: [8,5,4,2,1,1]             # Batch size per gpu
-    iters: [92000,64000,48000,36000,36000,24000]
-    gt_size: 384   # Max patch size for progressive training
-    gt_sizes: [128,160,192,256,320,384]  # Patch sizes for progressive training.
+    mini_batch_sizes: [8,5,4,2]             # Batch size per gpu
+    iters: [92000,64000,48000,96000]
+    gt_size: 256   # Max patch size = native image resolution (no reflect-padding)
+    gt_sizes: [128,160,192,256]  # Patch sizes for progressive training (capped at 256).
     ### ------------------------------------------------------------
 
     ### ------- Training on single fixed-patch size 128x128---------
@@ -43,8 +69,8 @@ datasets:
   val:
     name: ValSet
     type: Dataset_PairedImage_uint16
-    dataroot_gt: /mnt/home/taha.hussain@ad.five-d.ai/holographic_image_dataset/val_clean
-    dataroot_lq: /mnt/home/taha.hussain@ad.five-d.ai/holographic_image_dataset/val_noisy
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holo_image_dataset/val_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holo_image_dataset/val_noisy
     io_backend:
       type: disk
 
@@ -69,25 +95,25 @@ path:
   strict_load_g: true
   resume_state: ~   # null = fresh start
                     # to resume: set to experiments/Holo_Baseline_Restormer/training_states/ITER.state
-                    # example:   experiments/Holo_Baseline_Restormer/training_states/20000.state
+                    # example:   experiments/Holo_Baseline_Restormer/training_states/92000.state
 
 # training settings
 train:
-  total_iter: 75000
+  total_iter: 300000
   warmup_iter: -1 # no warm up
   use_grad_clip: true
 
-  # Split 75k iterations into two cycles (70/30).
-  # 1st cycle: fixed 3e-4 LR for 52k iters.
-  # 2nd cycle: cosine annealing (3e-4 to 1e-6), period 75k (extends past training end — partial anneal).
+  # Original Restormer deraining schedule: two cycles.
+  # 1st cycle: fixed 3e-4 LR for 92k iters (eta_min == initial lr => constant).
+  # 2nd cycle: cosine anneal 3e-4 -> 1e-6 over 208k iters (92k -> 300k).
   scheduler:
     type: CosineAnnealingRestartCyclicLR
-    periods: [52000, 75000]
+    periods: [92000, 208000]
     restart_weights: [1,1]
-    eta_mins: [0.0003,0.000001]
+    eta_mins: [0.0003, 0.000001]
 
   mixing_augs:
-    mixup: false
+    mixup: true      # upstream deraining recipe default (faithful baseline)
     mixup_beta: 1.2
     use_identity: true
 
@@ -113,10 +139,14 @@ val:
   max_minibatch: 8
 
   metrics:
-    psnr: # metric name, can be arbitrary
+    psnr:
       type: calculate_psnr
       crop_border: 0
-      test_y_channel: true
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
 
 # logging settings
 logger:

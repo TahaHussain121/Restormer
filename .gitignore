@@ -1,16 +1,66 @@
-.ipynb_checkpoints/
-*.pyc
-__pycache__/
-.DS_Store
-.venv/
-.eggs/
-basicsr.egg-info/
+# ============================================================
+# Only source code is tracked. Models, images, logs, training
+# outputs and data artifacts are all ignored.
+# ============================================================
 
-# training outputs
+# --- Python ---
+*.pyc
+*.pyo
+__pycache__/
+.ipynb_checkpoints/
+.eggs/
+*.egg-info/
+basicsr.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# --- OS ---
+.DS_Store
+
+# --- Training outputs / experiment dirs ---
 experiments/
 tb_logger/
+results/
+visualization/
+**/results/
 
-# model weights and data artifacts
+# --- Model weights / checkpoints ---
 *.pth
-*.mat
+*.pt
+*.ckpt
+*.tar
+*.pkl
+*.onnx
+*.safetensors
+
+# --- Training states (basicsr resume files) ---
+*.state
+
+# --- TensorBoard event files ---
+events.out.tfevents.*
+*.tfevents.*
+
+# --- SLURM / run logs ---
+slurm_*.out
+slurm_*.log
+*.log
+
+# --- Images ---
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tif
+*.tiff
+
+# --- Data arrays / large binaries ---
 *.npy
+*.npz
+*.mat
+*.h5
+*.hdf5
+# keep the NIQE metric params (required by basicsr, not a data artifact)
+!basicsr/metrics/niqe_pris_params.npz
