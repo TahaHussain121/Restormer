@@ -294,6 +294,18 @@ Deleted: experiments/Holo_Baseline_Restormer (26-28k run),
 NOTE: this same native-resolution cap (gt_size 256, patches <= 256) must also be applied
 to the future denoising-schedule ablation config.
 
+## Step 18 — Loss function verified: L1Loss (docs correction) (2026-06-15)
+Verified the actual training loss from the live config + code (no code/config changed):
+  - Deraining_Holo/Options/Holo_Baseline_Restormer.yml -> train.pixel_opt.type: L1Loss
+    (loss_weight 1, reduction mean)
+  - basicsr/models/image_restoration_model.py init_training_settings() builds
+    self.cri_pix = L1Loss(...) from pixel_opt.type, applied as l_pix in
+    optimize_parameters() (l_pix = self.cri_pix(pred, gt); l_pix.backward()).
+So the optimized objective is L1Loss, which also matches the upstream Restormer
+deraining recipe.
+Correction: earlier CONTEXT.md "Architecture Decisions" said the loss was "Charbonnier".
+That was an error — corrected to L1Loss. Docs-only change; training untouched.
+
 ## TODO
 - [ ] Step 17-run: fresh 4-stage run submitted via chain script; drive to 300k, log final PSNR/SSIM
 - [ ] Step 18: evaluate on val set, then run test_holo.py on the locked test set

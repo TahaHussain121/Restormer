@@ -20,7 +20,9 @@ DINOv2 injection planned for July. NOT now. Get baseline Restormer working first
 
 ## Architecture Decisions
 - Backbone: Restormer with deraining config as starting point
-- Loss: L1 (current config; original Charbonnier from deraining baseline)
+- Loss: L1Loss (mean reduction, weight 1) — verified from train.pixel_opt.type in the
+  yml and self.cri_pix / l_pix in basicsr/models/image_restoration_model.py. This matches
+  the upstream Restormer deraining recipe. (Earlier docs said "Charbonnier" — that was wrong.)
 - inp_channels: 1, out_channels: 1 (CFR is single-channel)
 - Everything else in yml identical to deraining baseline
 - basicsr/ is NOT to be modified (except already-committed uint16 loader fixes)
