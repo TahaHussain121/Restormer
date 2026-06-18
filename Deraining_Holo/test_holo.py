@@ -66,7 +66,43 @@ def psnr_uint16(gt, pred):
         return float('inf')
     return 20 * math.log10(65535.0 / math.sqrt(mse))
 
-def save_heatmap_grid(noisy, prediction, gt, save_path, cmap, psnr=None):
+# ---- sharpness / blur metrics (operate on 2D float arrays in [0, 1]) ---------
+def lap_var(x):
+    """Variance of the Laplacian — fine-detail sharpness. Lower = blurrier."""
+    return cv2.Laplacian(x.astype(np.float64), cv2.CV_64F).var()
+
+def grad_mag(x):
+    """Mean Sobel gradient magnitude — edge strength. Lower = blurrier."""
+    xd = x.astype(np.float64)
+    gx = cv2.Sobel(xd, cv2.CV_64F, 1, 0, ksize=3)
+    gy = cv2.Sobel(xd, cv2.CV_64F, 0, 1, ksize=3)
+    return float(np.mean(np.sqrt(gx ** 2 + gy ** 2)))
+
+def hf_energy(x):
+    """Fraction of FFT power beyond 1/4 of the Nyquist radius. Lower = blurrier."""
+    F2 = np.fft.fftshift(np.fft.fft2(x.astype(np.float64)))
+    P = np.abs(F2) ** 2
+    h, w = x.shape
+    Y, X = np.ogrid[:h, :w]
+    r = np.sqrt((Y - h // 2) ** 2 + (X - w // 2) ** 2)
+    return float(P[r > 0.25 * r.max()].sum() / P.sum())
+
+def radial_power(x, nbins=128):
+    """Azimuthally-averaged power spectrum: returns (freq_fraction, power[nbins])."""
+    F2 = np.fft.fftshift(np.fft.fft2(x.astype(np.float64)))
+    P = np.abs(F2) ** 2
+    h, w = x.shape
+    Y, X = np.ogrid[:h, :w]
+    r = np.sqrt((Y - h // 2) ** 2 + (X - w // 2) ** 2)
+    rmax = r.max()
+    bin_idx = np.clip((r / rmax * (nbins - 1)).astype(int), 0, nbins - 1)
+    radial = np.bincount(bin_idx.ravel(), weights=P.ravel(), minlength=nbins)
+    counts = np.bincount(bin_idx.ravel(), minlength=nbins)
+    radial = radial / np.maximum(counts, 1)
+    freq = np.linspace(0, 1, nbins)  # fraction of Nyquist
+    return freq, radial
+
+def save_heatmap_grid(noisy, prediction, gt, save_path, cmap, psnr=None, psnr_noisy=None):
     """
     noisy, prediction, gt: 2D float32 arrays normalised to [0, 1].
     gt may be None if no GT is provided.
@@ -87,6 +123,8 @@ def save_heatmap_grid(noisy, prediction, gt, save_path, cmap, psnr=None):
         im = ax.imshow(img, cmap=cmap, vmin=vmin, vmax=vmax, aspect='auto')
         if title == 'Prediction' and psnr is not None:
             ax.set_title(f'{title}\nPSNR: {psnr:.2f} dB', fontsize=13, fontweight='bold')
+        elif title == 'Noisy Input' and psnr_noisy is not None:
+            ax.set_title(f'{title}\nPSNR: {psnr_noisy:.2f} dB', fontsize=13, fontweight='bold')
         else:
             ax.set_title(title, fontsize=13, fontweight='bold')
         ax.axis('off')
@@ -103,6 +141,16 @@ if not files:
 
 psnr_list = []
 ssim_list = []
+psnr_noisy_list = []
+ssim_noisy_list = []
+
+# sharpness accumulators (only populated when GT is available)
+sharp = {k: {'noisy': [], 'pred': [], 'gt': []}
+         for k in ('lap', 'grad', 'hf')}
+NBINS = 128
+radial_acc = {'noisy': np.zeros(NBINS), 'pred': np.zeros(NBINS), 'gt': np.zeros(NBINS)}
+radial_freq = np.linspace(0, 1, NBINS)
+radial_n = 0
 
 with torch.no_grad():
     for file_ in tqdm(files):
@@ -130,16 +178,37 @@ with torch.no_grad():
         # load GT if available
         gt_f = None
         psnr = None
+        psnr_noisy = None
         if args.gt_dir is not None:
             gt_path = os.path.join(args.gt_dir, os.path.basename(file_))
             if os.path.exists(gt_path):
                 gt_raw = load_uint16(gt_path).squeeze()
                 gt_f   = gt_raw.astype(np.float32) / 65535.
+
+                # prediction vs GT
                 psnr   = psnr_uint16(gt_raw, out_uint16)
                 psnr_list.append(psnr)
-                s = ssim_fn(gt_raw.astype(np.float32) / 65535.,
-                            out_f, data_range=1.0)
+                s = ssim_fn(gt_f, out_f, data_range=1.0)
                 ssim_list.append(s)
+
+                # noisy input vs GT (baseline)
+                psnr_noisy = psnr_uint16(gt_raw, img_raw.squeeze())
+                psnr_noisy_list.append(psnr_noisy)
+                s_noisy = ssim_fn(gt_f, img_f.squeeze(), data_range=1.0)
+                ssim_noisy_list.append(s_noisy)
+
+                # sharpness / blur metrics
+                noisy_2d = img_f.squeeze()
+                for name, fn in (('lap', lap_var), ('grad', grad_mag), ('hf', hf_energy)):
+                    sharp[name]['noisy'].append(fn(noisy_2d))
+                    sharp[name]['pred'].append(fn(out_f))
+                    sharp[name]['gt'].append(fn(gt_f))
+
+                # radial power spectrum (averaged across images)
+                for key, arr in (('noisy', noisy_2d), ('pred', out_f), ('gt', gt_f)):
+                    _, rp = radial_power(arr, NBINS)
+                    radial_acc[key] += rp
+                radial_n += 1
 
         # save heatmap grid
         save_heatmap_grid(
@@ -149,10 +218,44 @@ with torch.no_grad():
             save_path  = os.path.join(viz_dir, basename + '_viz.png'),
             cmap       = args.cmap,
             psnr       = psnr,
+            psnr_noisy = psnr_noisy,
         )
 
 if psnr_list:
-    print(f'\nMean PSNR : {np.mean(psnr_list):.4f} dB')
-    print(f'Mean SSIM : {np.mean(ssim_list):.4f}')
+    mean_psnr_noisy = np.mean(psnr_noisy_list)
+    mean_psnr       = np.mean(psnr_list)
+    mean_ssim_noisy = np.mean(ssim_noisy_list)
+    mean_ssim       = np.mean(ssim_list)
+    print(f'\n{"Metric":<8}{"Noisy":>12}{"Denoised":>12}{"Improvement":>14}')
+    print(f'{"PSNR":<8}{mean_psnr_noisy:>9.4f} dB{mean_psnr:>9.4f} dB{mean_psnr - mean_psnr_noisy:>+11.4f} dB')
+    print(f'{"SSIM":<8}{mean_ssim_noisy:>12.4f}{mean_ssim:>12.4f}{mean_ssim - mean_ssim_noisy:>+14.4f}')
+
+    # ---- sharpness / blur report (Pred/GT < 1 => prediction is blurrier) -----
+    sharp_names = {'lap': 'Laplacian var', 'grad': 'Sobel grad', 'hf': 'HF energy frac'}
+    print(f'\n{"Sharpness":<16}{"Noisy":>12}{"Pred":>12}{"GT":>12}{"Pred/GT":>10}')
+    for k in ('lap', 'grad', 'hf'):
+        pn, pp, pg = np.mean(sharp[k]['noisy']), np.mean(sharp[k]['pred']), np.mean(sharp[k]['gt'])
+        print(f'{sharp_names[k]:<16}{pn:>12.5f}{pp:>12.5f}{pg:>12.5f}{pp / pg:>10.3f}')
+    print('(Pred/GT < 1.0 => prediction has less high-frequency detail than GT, i.e. blurrier)')
+
+    # ---- radial power spectrum plot ------------------------------------------
+    if radial_n > 0:
+        for key in radial_acc:
+            radial_acc[key] /= radial_n
+        fig, ax = plt.subplots(figsize=(7, 5))
+        for key, color in (('noisy', 'tab:orange'), ('pred', 'tab:blue'), ('gt', 'tab:green')):
+            ax.plot(radial_freq, radial_acc[key] + 1e-20, label=key.capitalize(), color=color, lw=2)
+        ax.set_yscale('log')
+        ax.set_xlabel('Spatial frequency (fraction of Nyquist)', fontsize=12)
+        ax.set_ylabel('Mean radial power (log scale)', fontsize=12)
+        ax.set_title('Azimuthally-averaged power spectrum', fontsize=13, fontweight='bold')
+        ax.legend(fontsize=11)
+        ax.grid(True, which='both', alpha=0.3)
+        plt.tight_layout()
+        spec_path = os.path.join(args.result_dir, 'radial_power_spectrum.png')
+        plt.savefig(spec_path, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        print(f'Radial power spectrum -> {spec_path}')
+
 print(f'Raw uint16 results  -> {raw_dir}')
 print(f'Heatmap grids       -> {viz_dir}')
