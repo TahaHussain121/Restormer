@@ -8,7 +8,8 @@
 # INTENTIONAL differences from the upstream deraining recipe:
 #   - network_g: inp_channels=1, out_channels=1   (CFR heatmaps are grayscale)
 #   - datasets:  type: Dataset_PairedImage_uint16 (uint16 PNG loader, /65535)
-#   - dataset paths point to our holo_image_dataset/{train,val}_{clean,noisy}
+#   - dataset paths point to our holographic_image_dataset/{train,val}_clean
+#     (GT) and /{train,val}_verynoisy (LQ input)
 #   - num_gpu: 1, num_worker_per_gpu: 2           (single A100 on HPC)
 #   - logger.save_checkpoint_freq: 2000           (HPC walltime resume safety)
 #   - logger.use_tb_logger: true                  (TensorBoard monitoring)
@@ -25,7 +26,7 @@
 # =============================================================================
 
 # general settings
-name: Holo_Baseline_Restormer
+name: Holo_Baseline_Restormer_verynoisy
 model_type: ImageCleanModel
 scale: 1
 num_gpu: 1  # set num_gpu: 0 for cpu mode
@@ -36,8 +37,8 @@ datasets:
   train:
     name: TrainSet
     type: Dataset_PairedImage_uint16
-    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holo_image_dataset/train_clean
-    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holo_image_dataset/train_noisy
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_verynoisy
     geometric_augs: true
 
     filename_tmpl: '{}'
@@ -69,8 +70,8 @@ datasets:
   val:
     name: ValSet
     type: Dataset_PairedImage_uint16
-    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holo_image_dataset/val_clean
-    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holo_image_dataset/val_noisy
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_verynoisy
     io_backend:
       type: disk
 
@@ -113,7 +114,7 @@ train:
     eta_mins: [0.0003, 0.000001]
 
   mixing_augs:
-    mixup: true      # upstream deraining recipe default (faithful baseline)
+    mixup: false     # disabled for the verynoisy run
     mixup_beta: 1.2
     use_identity: true
 
@@ -153,7 +154,7 @@ logger:
   print_freq: 1000
   save_checkpoint_freq: !!float 2e3
   use_tb_logger: true
-  tb_logger_dir: tb_logger/Holo_Baseline_Restormer
+  tb_logger_dir: tb_logger/Holo_Baseline_Restormer_verynoisy
   wandb:
     project: ~
     resume_id: ~

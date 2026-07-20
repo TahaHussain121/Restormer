@@ -10,8 +10,8 @@ datasets:
   test:
     name: ValSet
     type: Dataset_PairedImage_uint16
-    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holo_image_dataset/val_clean
-    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holo_image_dataset/val_noisy
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_verynoisy
     io_backend:
       type: disk
 
