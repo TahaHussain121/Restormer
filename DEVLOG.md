@@ -306,9 +306,76 @@ deraining recipe.
 Correction: earlier CONTEXT.md "Architecture Decisions" said the loss was "Charbonnier".
 That was an error — corrected to L1Loss. Docs-only change; training untouched.
 
+## Step 19 — Verynoisy baseline: new dataset, mixup off, 300k complete (2026-07-18 → 07-21)
+
+Switched the baseline onto the newer `holographic_image_dataset` using the
+**verynoisy** variant as the degraded input, with mixup disabled.
+
+Dataset work:
+  - `holographic_image_dataset/` ships `clean/`, `noisy/`, `verynoisy/`, `renders/`
+    (6778 each) plus `splits/{train,val}.txt`, but only `train_/val_` dirs for
+    clean+noisy. Built `train_verynoisy/` (6101) and `val_verynoisy/` (677) as
+    symlinks into `verynoisy/`, driven by the SAME splits/*.txt, so GT/LQ pairing
+    matches the clean split exactly.
+  - Gotcha: `splits/*.txt` have no trailing newline, so a naive `while read` loop
+    silently drops the last image (6100 instead of 6101). Loop must use
+    `while read -r f || [ -n "$f" ]`.
+
+Config (`Options/Holo_Baseline_Restormer.yml`):
+  - dataroots -> holographic_image_dataset/{train,val}_clean (GT)
+    and /{train,val}_verynoisy (LQ); test yml updated to match
+  - `mixing_augs.mixup: true -> false`
+  - `name:` -> `Holo_Baseline_Restormer_verynoisy`, `tb_logger_dir` to match.
+    This rename is load-bearing: basicsr keys both its output dir AND its
+    auto-resume scan off the experiment name, so reusing the old name would have
+    resumed the previous noisy run's 224k weights and written over its results.
+  - Note `use_identity` is only read when mixup is true, so it is dead config
+    here and was left at its upstream value.
+
+Run: `train_holo_chain_verynoisy.sh` (clone of the chain driver pointed at the new
+experiment dir, with its own `Holo_chain_state_verynoisy/` bookkeeping).
+Jobs 1752760 -> 1752761 -> 1753869, 3 of max 5, each auto-resuming. Completed the
+full 300k in 16 h 47 m (394 epochs) on a V100 at 97 % utilization; final job wrote
+TRAINING_DONE and cancelled its successor.
+
+Results:
+  - best val PSNR/SSIM 22.4460 / 0.8156 @ 292k
+  - final val PSNR/SSIM 22.4374 / 0.8158 @ 300k  (delta 0.009 dB -> use 300k)
+  - no overfitting; train loss falls throughout, val plateaus without decline
+  - the ~21.5 plateau seen mid-run at 174k resolved after the cosine LR restart
+    at 208k, gaining ~0.9 dB. Heavy eval-to-eval oscillation before ~200k is
+    LR-driven and damps out as LR anneals.
+
+Comparison vs Step 17's noisy baseline: the interesting result is convergence
+shape, not the absolute gap. The noisy run is essentially converged by ~25k and
+its 300k budget was mostly wasted; the verynoisy run improves across the whole
+schedule and needs the full budget. The raw 33.5 vs 22.4 dB gap is NOT a valid
+comparison — dataset, noise level and mixup all changed at once.
+
+Tooling: `plot_curves.py` and `plot_overfit.py` now take `--exp/--title` instead of
+a hardcoded experiment (overfit verdict is derived from the data, not hardcoded);
+added `plot_compare.py` for two-run overlays. Figures + metrics are archived under
+`Deraining_Holo/experiment_results/` (tracked in git via a .gitignore exception,
+since `experiments/`, `results/` and `*.png` are all ignored) with the running
+write-up in `experiment_results/results.md`.
+
+OPEN ISSUE: `holographic_image_dataset` has NO test split — only train.txt and
+val.txt. The Step 15 locked test set exists only for the old `holo_image_dataset`.
+So the verynoisy run currently has no held-out test number; evaluating on val is
+possible but val was used for monitoring. To report a genuine test figure, carve
+a test half out of the 677-image val set and re-evaluate.
+
+UNRESOLVED: why `net_g_128000.pth` was kept from the Step 17 noisy run is not
+recorded anywhere. It is not the peak (224k), not the knee (~156k per
+early_stop_knee.png), and not a progressive-stage boundary (92k/156k/204k).
+Most likely it was simply whatever survived a disk prune. Do not treat it as a
+deliberately selected checkpoint without confirming.
+
 ## TODO
-- [ ] Step 17-run: fresh 4-stage run submitted via chain script; drive to 300k, log final PSNR/SSIM
-- [ ] Step 18: evaluate on val set, then run test_holo.py on the locked test set
-- [ ] Step 19 (July): DINOv2 injection into bottleneck
-- [ ] Step 20 (July): ablation with/without DINOv2
-- [ ] Step 21 (Aug): write thesis chapter
+- [x] Step 17-run: fresh 4-stage run driven to 300k (noisy baseline; peak 33.473 dB @ 224k)
+- [x] Step 19: verynoisy baseline trained to 300k (peak 22.446 dB @ 292k)
+- [ ] Step 19a: create a test split for holographic_image_dataset, then evaluate
+      net_g_300000.pth on it (no held-out test set exists for this dataset yet)
+- [ ] Step 20 (July): DINOv2 injection into bottleneck
+- [ ] Step 21 (July): ablation with/without DINOv2
+- [ ] Step 22 (Aug): write thesis chapter

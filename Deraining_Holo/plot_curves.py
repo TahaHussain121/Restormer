@@ -1,10 +1,18 @@
-import re, glob, os
+import re, glob, os, argparse
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-EXP = '../experiments/Holo_Baseline_Restormer'
+parser = argparse.ArgumentParser()
+parser.add_argument('--exp', default='Holo_Baseline_Restormer',
+                    help='experiment name under experiments/')
+parser.add_argument('--title', default=None,
+                    help='figure title (defaults to the experiment name)')
+args = parser.parse_args()
+
+EXP = os.path.join('../experiments', args.exp)
+TITLE = args.title or f'{args.exp} — 300k training curves'
 logs = sorted(glob.glob(os.path.join(EXP, 'train_*.log')))
 print(f'parsing {len(logs)} log(s)')
 
@@ -77,7 +85,7 @@ for ax in axes:
     for x, lbl in stages[:-1]:
         ax.axvline(x, color='gray', ls=':', lw=0.8, alpha=0.6)
 
-fig.suptitle('Holo Baseline Restormer — 300k training curves', fontweight='bold', y=1.02)
+fig.suptitle(TITLE, fontweight='bold', y=1.02)
 plt.tight_layout()
 out = os.path.join(EXP, 'training_curves.png')
 plt.savefig(out, dpi=130, bbox_inches='tight')

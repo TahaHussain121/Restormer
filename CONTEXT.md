@@ -108,9 +108,12 @@ All config work happened on fived08; the actual first completed training run was
 - [x] reflect-padding contamination found (gt_size 384 padded 256 imgs -> mirrored fake structure in many crops at all stages); job 1694322 cancelled at iter ~28k
 - [x] obsolete runs DELETED (75k run + 26-28k reflect-pad run + archives + tb_logger); numbers preserved in DEVLOG Step 17
 - [x] yml schedule truncated to native 256: 4 stages, gt_size 256, gt_sizes [128,160,192,256], iters [92000,64000,48000,96000], mini_batch [8,5,4,2]
-- [~] Fresh 4-stage 300k retrain SUBMITTED via chain script — v100, job 1695465 (PD as of submit), self-chaining to 300k
-- [ ] Confirm first log (gt_size 256, 4-stage dump, fresh iter 0, finite loss)
-- [ ] Evaluate retrained model on val set, then test_holo.py on locked test set
+- [x] Fresh 4-stage 300k retrain COMPLETE (noisy baseline) — peak val 33.473 dB @ 224k, final 33.405 dB @ 300k
+- [x] Evaluated on locked test set (224k ckpt) — full 33.50 dB / 0.9458, masked 29.31 dB / 0.8739 (n=338)
+- [x] Verynoisy baseline COMPLETE (Step 19) — holographic_image_dataset, clean GT + verynoisy LQ, mixup OFF,
+      experiment Holo_Baseline_Restormer_verynoisy — peak val 22.446 dB @ 292k, final 22.437 dB @ 300k, no overfitting
+- [ ] Create a test split for holographic_image_dataset (it has train.txt/val.txt ONLY — no locked test set),
+      then evaluate net_g_300000.pth on it. Until then the verynoisy run has no held-out test number.
 - [ ] DINOv2 injection into bottleneck (July)
 
 Config naming convention:
@@ -120,7 +123,22 @@ Config naming convention:
 
 Manual commands log: COMMANDS.md at repo root — all commands to run by hand are recorded there.
 
-Last change: 2026-06-11 — RESTART. Found reflect-padding contamination (gt_size 384 on 256 imgs); cancelled job 1694322 at iter ~28k, truncated schedule to native 256 (4 stages), deleted all obsolete runs/tb_logger (numbers in DEVLOG Step 17), decoupled chain bookkeeping into experiments/Holo_chain_state/, and submitted fresh run via chain script (job 1695465, v100, PD). Awaiting first-log confirmation.
+Experiment results: Deraining_Holo/experiment_results/ — per-run figures, metrics CSVs and
+results.md write-up. Tracked in git via a .gitignore exception, because experiments/, results/
+and *.png are otherwise all ignored. Put anything worth keeping there, not in experiments/.
+
+Dataset note: TWO datasets are now in play.
+  holo_image_dataset/         — original; clean/noisy; HAS a locked test split (Step 15)
+  holographic_image_dataset/  — newer; clean/noisy/verynoisy/renders; train.txt+val.txt ONLY,
+                                no test split. train_/val_verynoisy built as symlinks from
+                                splits/*.txt (see DEVLOG Step 19).
+
+Last change: 2026-07-21 — Verynoisy baseline complete (DEVLOG Step 19). Switched configs to
+holographic_image_dataset with clean GT + verynoisy LQ, disabled mixup, renamed the experiment to
+Holo_Baseline_Restormer_verynoisy so the previous noisy run could not be resumed from or overwritten.
+Trained the full 300k in 16h47m across 3 chained jobs: peak val 22.446 dB @ 292k, no overfitting.
+Plot scripts generalized to --exp; added plot_compare.py. Open issue: no held-out test set exists for
+holographic_image_dataset, so the verynoisy run has no test number yet.
 
 ## Known Issues (must fix before smoke test)
 1. ~~uint16 → uint8 truncation~~ FIXED via imfrombytes_uint16 + Dataset_PairedImage_uint16

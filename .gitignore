@@ -56,6 +56,13 @@ slurm_*.log
 *.tif
 *.tiff
 
+# --- Curated experiment results (tracked on purpose) ---
+# Everything else under experiments/ stays ignored; this folder is the
+# permanent, versioned record of each run's figures + metrics so results
+# survive scratch cleanup. Keep it small: summary figures and CSVs only.
+!Deraining_Holo/experiment_results/
+!Deraining_Holo/experiment_results/**
+
 # --- Data arrays / large binaries ---
 *.npy
 *.npz

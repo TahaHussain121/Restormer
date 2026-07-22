@@ -1,10 +1,17 @@
-import re, glob, os
+import re, glob, os, argparse
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-EXP = '../experiments/Holo_Baseline_Restormer'
+parser = argparse.ArgumentParser()
+parser.add_argument('--exp', default='Holo_Baseline_Restormer',
+                    help='experiment name under experiments/')
+parser.add_argument('--title', default=None)
+args = parser.parse_args()
+
+EXP = os.path.join('../experiments', args.exp)
+TITLE = args.title or f'{args.exp} — train loss vs validation PSNR (overfitting check)'
 logs = sorted(glob.glob(os.path.join(EXP, 'train_*.log')))
 
 iter_re = re.compile(r'iter:\s*([\d,]+).*?l_pix:\s*([0-9.eE+-]+)')
@@ -72,10 +79,25 @@ for x, lbl in [(92000,'128'),(156000,'160'),(204000,'192')]:
     ax1.axvline(x, color='gray', ls=':', lw=0.8, alpha=0.6)
     ax1.text(x, ax1.get_ylim()[1]*0.97, f'->{lbl}', fontsize=7, color='gray', ha='left')
 
-# interpretation box
-verdict = ('NO overfitting: train loss keeps falling while val PSNR\n'
-           'rises then plateaus (no sustained decline). Final 33.40 dB,\n'
-           'peak 33.47 dB @ 224k. Gap is the normal LR-anneal plateau.')
+# interpretation box — derived from the data, not hard-coded
+peak, final = val_psnr[best_i], val_psnr[-1]
+drop = peak - final
+# "sustained" decline = mean of the evals after the peak sits clearly below it
+tail = val_psnr[best_i + 1:]
+sustained = len(tail) >= 3 and (peak - float(np.mean(tail))) > 0.10
+loss_falling = len(sm_loss) > 2 and sm_loss[-1] < sm_loss[len(sm_loss) // 2]
+
+if sustained:
+    head = 'POSSIBLE over-training:'
+    body = (f'val PSNR declines {drop:.3f} dB after the peak while train\n'
+            f'loss keeps falling.')
+else:
+    head = 'NO overfitting:'
+    body = (f'train loss {"keeps falling" if loss_falling else "is flat"} while val PSNR\n'
+            f'rises then plateaus (no sustained decline).')
+verdict = (f'{head}\n{body}\n'
+           f'Peak {peak:.3f} dB @ {val_iter[best_i]//1000}k, final {final:.3f} dB '
+           f'@ {val_iter[-1]//1000}k (Δ {drop:.3f} dB).')
 ax1.text(0.015, 0.04, verdict, transform=ax1.transAxes, fontsize=9,
          va='bottom', bbox=dict(boxstyle='round', fc='lightyellow', ec='gray', alpha=0.9))
 
@@ -83,8 +105,7 @@ lines1, lab1 = ax1.get_legend_handles_labels()
 lines2, lab2 = ax2.get_legend_handles_labels()
 ax1.legend(lines1+lines2, lab1+lab2, loc='center right')
 
-plt.title('Holo Baseline Restormer — train loss vs validation PSNR (overfitting check)',
-          fontweight='bold')
+plt.title(TITLE, fontweight='bold')
 plt.tight_layout()
 out = os.path.join(EXP, 'overfit_check.png')
 plt.savefig(out, dpi=130, bbox_inches='tight')
