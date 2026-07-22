@@ -483,3 +483,28 @@ letting several runs accumulate.
 - [ ] Step 20 (July): DINOv2 injection into bottleneck
 - [ ] Step 21 (July): ablation with/without DINOv2
 - [ ] Step 22 (Aug): write thesis chapter
+
+## Step 19c — Masked-metric analysis on the verynoisy test set (2026-07-22)
+
+Re-ran masked_metrics.py on the 338-image test set with --save_mask_viz to add
+the mask visualization Exp 1 had but Exp 2 was missing. Metrics reproduced
+exactly (they were already computed inside the Step 19a eval job):
+
+  full image    PSNR 22.4047 +/- 3.0523   SSIM 0.7999 +/- 0.0766
+  masked (fg)   PSNR 18.3131 +/- 2.9174   SSIM 0.5438 +/- 0.1361
+  coverage 39.5% mean (13.9%-80.3% range), threshold 0.01, dilate 3
+
+New analysis from the per-image CSV:
+  - full-minus-masked PSNR gap 4.09 +/- 1.24 dB (0.95-8.54). The object region is
+    consistently much harder than the full frame; ~60% of pixels are easy empty
+    background, so the full-image number flatters the model. Report the masked
+    figure as the honest one.
+  - corr(mask_frac, psnr_mask) = +0.13, i.e. essentially uncorrelated. The masked
+    score is NOT an artifact of object size -- large objects are not easier.
+  - worst cases by masked PSNR: 3752.png (8.88 dB), 3796.png (11.69), 0616.png
+    (11.71). Starting points for qualitative failure analysis.
+  - masked SSIM 0.5438 vs full 0.7999: on the object itself structural fidelity
+    is only moderate, consistent with the over-smoothing finding in Step 19a.
+
+Note masked_metrics.py is CPU-only, so this ran on the login node -- no job needed.
+Artifacts archived to experiment_results/exp2_verynoisy/.

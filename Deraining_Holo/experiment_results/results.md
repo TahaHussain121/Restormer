@@ -187,7 +187,21 @@ sbatch Deraining_Holo/eval_test_verynoisy.sh     # job 1757484, ~5 min on a V100
 | PSNR | 22.405 ± 3.052 dB | 18.313 ± 2.917 dB |
 | SSIM | 0.7999 ± 0.077 | 0.5438 ± 0.136 |
 
-Mean foreground coverage 39.5 % (threshold 0.01, dilate 3).
+Mean foreground coverage 39.5 % (threshold 0.01, dilate 3, range 13.9–80.3 %).
+Mask definition and a 3-example sanity check: `exp2_verynoisy/mask_visualization.png`.
+Per-image data: `exp2_verynoisy/masked_metrics_per_image.csv` (338 rows).
+
+Masked analysis:
+- Full-minus-masked PSNR gap **4.09 ± 1.24 dB** (range 0.95–8.54). The object
+  region is consistently and substantially harder than the frame as a whole, so
+  the full-image figure flatters the model — the empty background is easy to
+  reconstruct and makes up ~60 % of pixels.
+- `corr(mask_frac, psnr_mask) = +0.13` — near zero, so the masked score is *not*
+  an artifact of object size. Bigger objects are not systematically easier.
+- Worst cases by masked PSNR: `3752.png` (8.88 dB), `3796.png` (11.69),
+  `0616.png` (11.71) — useful starting points for qualitative failure analysis.
+- Masked SSIM 0.5438 vs full 0.7999 tells the same story more starkly: on the
+  object itself, structural fidelity is only moderate.
 
 **Sharpness — the model over-smooths.**
 
