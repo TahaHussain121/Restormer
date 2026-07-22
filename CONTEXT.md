@@ -112,8 +112,12 @@ All config work happened on fived08; the actual first completed training run was
 - [x] Evaluated on locked test set (224k ckpt) — full 33.50 dB / 0.9458, masked 29.31 dB / 0.8739 (n=338)
 - [x] Verynoisy baseline COMPLETE (Step 19) — holographic_image_dataset, clean GT + verynoisy LQ, mixup OFF,
       experiment Holo_Baseline_Restormer_verynoisy — peak val 22.446 dB @ 292k, final 22.437 dB @ 300k, no overfitting
-- [ ] Create a test split for holographic_image_dataset (it has train.txt/val.txt ONLY — no locked test set),
-      then evaluate net_g_300000.pth on it. Until then the verynoisy run has no held-out test number.
+- [x] Test split carved for holographic_image_dataset (Step 19a) — 339 val / 338 test, seed 42, same recipe as Step 15
+- [x] Verynoisy evaluated on the 338-image test set with net_g_292000.pth (best val, not final):
+      full 22.405 dB / 0.7999, masked 18.313 dB / 0.5438, +10.05 dB over the noisy input
+      CAVEAT: split was carved AFTER training, so the test half influenced checkpoint selection
+      (not the weights). Exp 1's split predated training and is clean. See DEVLOG Step 19a.
+- [ ] Over-smoothing is the headline weakness: prediction retains only ~22% of GT high-frequency energy
 - [ ] DINOv2 injection into bottleneck (July)
 
 Config naming convention:

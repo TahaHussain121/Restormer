@@ -371,11 +371,86 @@ early_stop_knee.png), and not a progressive-stage boundary (92k/156k/204k).
 Most likely it was simply whatever survived a disk prune. Do not treat it as a
 deliberately selected checkpoint without confirming.
 
+## Step 19a — Held-out test split for holographic_image_dataset (2026-07-22)
+
+Mirrored the Step 15 recipe onto holographic_image_dataset so the verynoisy run
+can be reported on a held-out set instead of on validation.
+
+Procedure (identical method and seed to Step 15, so the two datasets are
+methodologically comparable):
+  - `create_val_test_split.py --root <holographic> --seed 42`
+    shuffles the 677-entry val.txt and halves it -> 339 val / 338 test.
+    Train is never touched. Byte-identical recipe to holo, which also produced
+    339/338 from its own 677.
+  - `create_symlinks.py --root <holographic> --variants clean noisy verynoisy
+     --splits val test --allow-replace-files`
+    rebuilds val_/test_ dirs for all three variants.
+  - `verify_splits.py --root <holographic> --variants clean noisy verynoisy`
+    -> train 6101 / val 339 / test 338, all pairwise intersections 0, exit 0.
+
+Scripts generalized in the process (all three were hardcoded to
+holo_image_dataset and to clean+noisy only):
+  - `--root`, `--variants`, `--splits` args added throughout
+  - create_val_test_split.py now backs up val.txt -> val.txt.bak and REFUSES to
+    run if test.txt already exists (a second run would halve an already-halved
+    val set, silently shrinking it to ~169). --force overrides.
+  - create_val_test_split.py now writes a trailing newline. The Step 15 version
+    used '\n'.join(...) with none, which is the exact cause of the dropped-last-
+    image bug hit in Step 19.
+  - create_symlinks.py refuses to delete a real file unless the same filename
+    exists in the master variant dir (i.e. content is recoverable), and requires
+    --allow-replace-files to do so at all. Needed because holographic's
+    val_clean/val_noisy held real COPIES (677 each), not symlinks, unlike holo.
+    Verified all 677x3 were present in the master dirs before rebuilding.
+  - verify_splits.py now exits non-zero on mismatch/overlap so it can gate.
+  - Only val/test were rebuilt; train_* dirs (6101 real copies) left untouched
+    since the train split did not change.
+
+Evaluation run as job 1757484 (`eval_test_verynoisy.sh`, ~5 min on a V100) using
+**net_g_292000.pth — the BEST checkpoint by val PSNR (22.4460 dB), not the final
+300k (22.4374 dB)**, on the new 338-image test split.
+
+RESULTS (338 held-out images):
+  noisy input   PSNR 12.3544 dB   SSIM 0.3353
+  denoised      PSNR 22.4047 dB   SSIM 0.7999
+  improvement        +10.0504 dB       +0.4645
+  full image    PSNR 22.4047 +/- 3.0523   SSIM 0.7999 +/- 0.0766
+  masked (fg)   PSNR 18.3131 +/- 2.9174   SSIM 0.5438 +/- 0.1361  (39.5% coverage)
+
+  Test 22.405 vs val 22.446 -> 0.04 dB gap, so the model generalizes cleanly.
+
+  SHARPNESS -- the model over-smooths. Pred/GT ratios: Laplacian var 0.283,
+  Sobel grad 0.730, HF energy fraction 0.216. The prediction keeps only ~22% of
+  the GT's high-frequency energy. The +10 dB is partly bought by blurring away
+  genuine fine structure along with the noise -- the classic L1 over-smoothing
+  failure mode. This is the most promising target for the DINOv2 work: a
+  semantic prior is exactly the kind of thing that could restore detail the
+  pixel loss has no incentive to keep.
+
+METHODOLOGICAL CAVEAT (important, do not lose this):
+Step 15 carved holo's test split BEFORE the 300k training run, so validation
+during that run used only the 339 val images and the test set was genuinely
+held out. Here the order is reversed -- Exp 2 trained to completion using ALL
+677 images as its validation set, and the test half is being carved afterwards.
+So the test images influenced CHECKPOINT SELECTION (they were never trained on;
+they are not in train.txt). Practical impact is small: the top-5 checkpoints
+span 22.4305-22.4460 dB, a 0.016 dB spread, so the choice is near-arbitrary.
+But the resulting test number is NOT a fully clean held-out estimate and must be
+described that way in the thesis. A clean number would require either selecting
+the checkpoint on the 339-image val half only, or re-running training with the
+split in place first (as Step 15/17 did).
+
+Side effect: the training config's val dataroots now resolve to 339 images
+instead of 677. Any FUTURE run on this dataset validates on the smaller set --
+which is the correct behaviour, but means val PSNR from future runs is not
+directly comparable to Exp 2's logged val curve.
+
 ## TODO
 - [x] Step 17-run: fresh 4-stage run driven to 300k (noisy baseline; peak 33.473 dB @ 224k)
 - [x] Step 19: verynoisy baseline trained to 300k (peak 22.446 dB @ 292k)
-- [ ] Step 19a: create a test split for holographic_image_dataset, then evaluate
-      net_g_300000.pth on it (no held-out test set exists for this dataset yet)
+- [x] Step 19a: test split carved for holographic_image_dataset (339 val / 338 test, seed 42)
+- [x] Step 19a-eval: test metrics recorded (22.405 dB full / 18.313 dB masked, net_g_292000.pth)
+- [ ] Investigate over-smoothing: pred keeps only ~22% of GT high-frequency energy
 - [ ] Step 20 (July): DINOv2 injection into bottleneck
 - [ ] Step 21 (July): ablation with/without DINOv2
 - [ ] Step 22 (Aug): write thesis chapter

@@ -88,8 +88,10 @@ TensorBoard → `tb_logger/Holo_Baseline_Restormer_verynoisy`
 | **Val PSNR / SSIM (best)** | **22.446 / 0.8156** @ iter 292k |
 | Val PSNR / SSIM (final) | 22.437 / 0.8158 @ iter 300k |
 | Final train loss `l_pix` | ~1.5e-2 – 2.6e-2 |
-| Test full PSNR / SSIM | _pending — see "Test evaluation" below_ |
-| Test masked PSNR / SSIM | _pending_ |
+| **Test full PSNR / SSIM** | **22.405 ± 3.052 / 0.7999 ± 0.077** |
+| **Test masked PSNR / SSIM** | **18.313 ± 2.917 / 0.5438 ± 0.136** |
+
+Test = 338 held-out images, checkpoint `net_g_292000.pth` (best val), job 1757484.
 
 Figures: `experiment_results/exp2_verynoisy/training_curves.png`,
 `overfit_check.png`; comparison vs Exp 1 in
@@ -110,37 +112,56 @@ Figures: `experiment_results/exp2_verynoisy/training_curves.png`,
 - The full 300k budget was **used productively here**, unlike Exp 1 which was
   essentially converged by ~25k (see comparison section).
 
-**Test evaluation — ⚠️ no held-out test set exists for this dataset**
+### Test evaluation (338 held-out images, best checkpoint)
 
-`holographic_image_dataset/splits/` contains only `train.txt` and `val.txt`;
-there are no `test_*` directories. Exp 1 had a locked `test_clean`/`test_noisy`
-split, Exp 2 does not. So the command below evaluates on the **validation** set,
-which was used for monitoring during training — it is *not* a clean held-out
-estimate and must be labelled as validation in the thesis.
+Test split carved 2026-07-22 with the same recipe and seed as Exp 1
+(`create_val_test_split.py --seed 42`): the 677-image val set was halved into
+339 val / 338 test. See DEVLOG Step 19a.
+
+Checkpoint: **`net_g_292000.pth`** — the best by validation PSNR (22.4460 dB),
+deliberately *not* the final 300k (22.4374 dB).
 
 ```bash
-# from Deraining_Holo/ , with the venv python
-PY=/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python
-DS=/home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset
-
-# 1) run the final checkpoint over the val set (writes raw/ + viz/ + PSNR/SSIM)
-$PY test_holo.py \
-  --input_dir  $DS/val_verynoisy \
-  --gt_dir     $DS/val_clean \
-  --weights    ../experiments/Holo_Baseline_Restormer_verynoisy/models/net_g_300000.pth \
-  --result_dir ./results/Holo_verynoisy_val_300k/
-
-# 2) masked (foreground-object) metrics
-$PY masked_metrics.py \
-  --pred_dir  ./results/Holo_verynoisy_val_300k/raw \
-  --gt_dir    $DS/val_clean \
-  --threshold 0.01 --dilate 3 \
-  --csv       ./results/Holo_verynoisy_val_300k/masked_metrics_per_image.csv
+sbatch Deraining_Holo/eval_test_verynoisy.sh     # job 1757484, ~5 min on a V100
 ```
 
-To get a genuine held-out test number, carve a test split out of the current
-677-image val set (e.g. 338 val / 339 test) and re-evaluate on the unseen half.
-The 6101 training images cannot be reused for this — the model has seen them.
+| Metric | Noisy input | Denoised | Improvement |
+|---|---|---|---|
+| PSNR | 12.354 dB | **22.405 dB** | **+10.050 dB** |
+| SSIM | 0.3353 | **0.7999** | **+0.4645** |
+
+| | Full image | Masked (foreground) |
+|---|---|---|
+| PSNR | 22.405 ± 3.052 dB | 18.313 ± 2.917 dB |
+| SSIM | 0.7999 ± 0.077 | 0.5438 ± 0.136 |
+
+Mean foreground coverage 39.5 % (threshold 0.01, dilate 3).
+
+**Sharpness — the model over-smooths.**
+
+| Measure | Noisy | Pred | GT | Pred/GT |
+|---|---|---|---|---|
+| Laplacian var | 0.00083 | 0.00015 | 0.00052 | **0.283** |
+| Sobel grad | 0.19479 | 0.08010 | 0.10969 | **0.730** |
+| HF energy frac | 0.00078 | 0.00021 | 0.00099 | **0.216** |
+
+The prediction retains only ~22 % of the GT's high-frequency energy. Denoising
+is working (+10 dB), but it is buying that by blurring: the network removes
+noise *and* genuine fine structure. This is the classic L1/MSE over-smoothing
+failure mode and is the most promising thing to attack next — it is exactly the
+kind of high-frequency detail a DINOv2 prior might help restore.
+
+**Sanity check:** test PSNR 22.405 vs val 22.446 — a 0.04 dB gap, so the model
+generalizes cleanly to unseen data with no sign of val-set memorization.
+
+> ⚠️ **Caveat — not a fully clean held-out number.** Exp 1's test split was
+> carved *before* training, so its test set never influenced anything. Here the
+> split was carved *after* Exp 2 finished, and the model was validated on all
+> 677 images during training. So the test half influenced **checkpoint
+> selection** (never the weights — those images are not in `train.txt`). The
+> top-5 checkpoints span only 0.016 dB, so the practical effect is negligible,
+> but the thesis should state this. A clean number needs the split in place
+> before training, as Exp 1 had.
 
 ---
 
