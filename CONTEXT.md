@@ -117,6 +117,8 @@ All config work happened on fived08; the actual first completed training run was
       full 22.405 dB / 0.7999, masked 18.313 dB / 0.5438, +10.05 dB over the noisy input
       CAVEAT: split was carved AFTER training, so the test half influenced checkpoint selection
       (not the weights). Exp 1's split predated training and is clean. See DEVLOG Step 19a.
+- [x] Verynoisy checkpoints pruned (Step 19b) — kept net_g_292000.pth (best) + net_g_128000.pth only;
+      all other .pth and ALL training states deleted (44 GB -> 201 MB). This run can no longer be resumed.
 - [ ] Over-smoothing is the headline weakness: prediction retains only ~22% of GT high-frequency energy
 - [ ] DINOv2 injection into bottleneck (July)
 

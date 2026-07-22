@@ -445,6 +445,35 @@ instead of 677. Any FUTURE run on this dataset validates on the smaller set --
 which is the correct behaviour, but means val PSNR from future runs is not
 directly comparable to Exp 2's logged val curve.
 
+## Step 19b — Checkpoint prune, verynoisy run (2026-07-22)
+
+The completed verynoisy experiment was occupying 44 GB: 151 model checkpoints
+(15 GB) plus 150 training states (30 GB), saved every 2000 iters.
+
+KEPT (2 files, 201 MB total):
+  net_g_128000.pth   mid-run reference point
+  net_g_292000.pth   BEST by val PSNR (22.4460 dB); produced the Step 19a test
+                     numbers -- this is the checkpoint the thesis reports
+
+DELETED: 149 other .pth files and ALL 150 .state files. Training reached 300k and
+TRAINING_DONE is set, so the resume states had no remaining purpose. This also
+removes net_g_300000.pth (the final checkpoint, 22.4374 dB) and net_g_latest.pth
+-- a deliberate call, since 292k is both better and the one actually evaluated.
+Note net_g_latest.pth was NOT byte-identical to net_g_300000.pth (different
+md5), so it was a distinct file rather than a duplicate.
+
+Both survivors were verified to load (494 tensors each) before AND after the
+deletion. Freed ~44 GB.
+
+CONSEQUENCE: training can no longer be resumed or extended for this experiment
+-- there are no .state files left. Re-running would mean starting from iter 0.
+The two kept .pth files are inference-only weights, which is all that is needed
+to reproduce the reported test metrics.
+
+NOTE for future runs: `save_checkpoint_freq: 2e3` produces ~150 checkpoints and
+~45 GB per 300k run. Worth pruning as soon as a run completes rather than
+letting several runs accumulate.
+
 ## TODO
 - [x] Step 17-run: fresh 4-stage run driven to 300k (noisy baseline; peak 33.473 dB @ 224k)
 - [x] Step 19: verynoisy baseline trained to 300k (peak 22.446 dB @ 292k)

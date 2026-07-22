@@ -14,6 +14,47 @@ Metric conventions:
 
 ---
 
+## Master results table
+
+All headline numbers in one place. Test sets are 338 held-out images in both cases.
+
+| | **Exp 1 — noisy** | **Exp 2 — verynoisy** |
+|---|---|---|
+| Dataset | `holo_image_dataset` | `holographic_image_dataset` |
+| Input (LQ) / target (GT) | noisy / clean | verynoisy / clean |
+| mixup | ON (beta 1.2) | OFF |
+| Iters trained | 300k | 300k |
+| Split | 6101 / 339 / 338 | 6101 / 339 / 338 |
+| **Checkpoint evaluated** | `net_g_224000` (best val) | `net_g_292000` (best val) |
+| Best val PSNR / SSIM | 33.473 / 0.9479 @ 224k | 22.446 / 0.8156 @ 292k |
+| Final val PSNR / SSIM | 33.405 / 0.9478 @ 300k | 22.437 / 0.8158 @ 300k |
+| **Test full PSNR / SSIM** | **33.499 / 0.9458** | **22.405 / 0.7999** |
+| **Test masked PSNR / SSIM** | **29.312 / 0.8739** | **18.313 / 0.5438** |
+| Mean foreground coverage | 39.5 % | 39.5 % |
+| Noisy-input baseline PSNR | — | 12.354 |
+| Gain over input | — | **+10.050 dB** |
+| Pred/GT HF energy ratio | — | 0.216 (over-smoothed) |
+| Overfitting | slight decline after 224k | none |
+| Train wall time | — | 16 h 47 m (3 chained jobs) |
+| **Test split carved** | **BEFORE training (clean)** | **AFTER training (see caveat)** |
+
+> ⚠️ **Split timing differs between the two experiments — this is the one caveat
+> to carry into the thesis.** Exp 1's test split was created *before* its training
+> run, so its test images were never seen by anything. Exp 2 was trained first and
+> the split carved afterwards, so validation during training covered all 677
+> images (confirmed in the logs: `Number of val images/folders in ValSet: 677`),
+> 338 of which are now the test set.
+>
+> The **weights are unaffected** — training gradients came only from the 6101
+> images in `train.txt`, and `train ∩ test = 0` is verified. What the test images
+> influenced is **checkpoint selection** only. The top-5 checkpoints span
+> 22.4305–22.4460 dB (0.016 dB), so the practical effect is negligible, but Exp 2's
+> test number is not a fully clean held-out estimate and should be described that
+> way. A clean number would require selecting on the 339-image val half alone, or
+> re-running with the split in place first.
+
+---
+
 ## Summary — Exp 1 vs Exp 2
 
 ![comparison](compare_noisy_vs_verynoisy.png)
@@ -92,6 +133,17 @@ TensorBoard → `tb_logger/Holo_Baseline_Restormer_verynoisy`
 | **Test masked PSNR / SSIM** | **18.313 ± 2.917 / 0.5438 ± 0.136** |
 
 Test = 338 held-out images, checkpoint `net_g_292000.pth` (best val), job 1757484.
+
+**Retained checkpoints** (pruned 2026-07-22, DEVLOG Step 19b — was 44 GB, now 201 MB):
+
+| File | Why kept |
+|---|---|
+| `net_g_292000.pth` | best val PSNR; the checkpoint these test numbers come from |
+| `net_g_128000.pth` | mid-run reference point |
+
+All other checkpoints and **all** training states were deleted. Training can no
+longer be resumed or extended for this experiment — the two survivors are
+inference-only weights, sufficient to reproduce the metrics above.
 
 Figures: `experiment_results/exp2_verynoisy/training_curves.png`,
 `overfit_check.png`; comparison vs Exp 1 in
