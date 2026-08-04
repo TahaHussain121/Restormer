@@ -57,7 +57,7 @@ All headline numbers in one place. Test sets are 338 held-out images in both cas
 
 ## Summary — Exp 1 vs Exp 2
 
-![comparison](compare_noisy_vs_verynoisy.png)
+![comparison](comparisons/compare_noisy_vs_verynoisy.png)
 
 | | Exp 1 (noisy, mixup ON) | Exp 2 (verynoisy, mixup OFF) |
 |---|---|---|
@@ -85,7 +85,7 @@ Regenerate with:
 python plot_compare.py \
   --exp_a Holo_Baseline_Restormer           --label_a 'Exp1: noisy, mixup ON' \
   --exp_b Holo_Baseline_Restormer_verynoisy --label_b 'Exp2: verynoisy, mixup OFF' \
-  --out ../Deraining_Holo/experiment_results/compare_noisy_vs_verynoisy.png
+  --out ../Deraining_Holo/experiment_results/comparisons/compare_noisy_vs_verynoisy.png
 ```
 
 ---
@@ -145,9 +145,9 @@ All other checkpoints and **all** training states were deleted. Training can no
 longer be resumed or extended for this experiment — the two survivors are
 inference-only weights, sufficient to reproduce the metrics above.
 
-Figures: `experiment_results/exp2_verynoisy/training_curves.png`,
-`overfit_check.png`; comparison vs Exp 1 in
-`experiment_results/compare_noisy_vs_verynoisy.png`.
+Figures: `exp2_verynoisy/figures/training_curves.png`,
+`exp2_verynoisy/figures/overfit_check.png`; comparison vs Exp 1 in
+`comparisons/compare_noisy_vs_verynoisy.png`.
 
 **Observations**
 - **Converged.** Last 8 evals sit in a 22.41–22.45 band and LR has annealed to
@@ -188,8 +188,8 @@ sbatch Deraining_Holo/eval_test_verynoisy.sh     # job 1757484, ~5 min on a V100
 | SSIM | 0.7999 ± 0.077 | 0.5438 ± 0.136 |
 
 Mean foreground coverage 39.5 % (threshold 0.01, dilate 3, range 13.9–80.3 %).
-Mask definition and a 3-example sanity check: `exp2_verynoisy/mask_visualization.png`.
-Per-image data: `exp2_verynoisy/masked_metrics_per_image.csv` (338 rows).
+Mask definition and a 3-example sanity check: `exp2_verynoisy/figures/mask_visualization.png`.
+Per-image data: `exp2_verynoisy/metrics/masked_metrics_per_image.csv` (338 rows).
 
 Masked analysis:
 - Full-minus-masked PSNR gap **4.09 ± 1.24 dB** (range 0.95–8.54). The object

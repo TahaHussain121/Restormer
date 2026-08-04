@@ -91,5 +91,6 @@ model over-smooths, removing fine structure along with noise.
   background; the object-region (masked) figure is the honest measure of
   reconstruction quality. Full-minus-masked PSNR gap 4.09 ± 1.24 dB.
 - **Reproduce:** `sbatch Deraining_Holo/train_holo_chain_verynoisy.sh` (train),
-  `sbatch Deraining_Holo/eval_test_verynoisy.sh` (test). Full write-up and
-  figures in `experiment_results/results.md` and `exp2_verynoisy/`.
+  `sbatch Deraining_Holo/eval_test_verynoisy.sh` (test). Full write-up in
+  `experiment_results/results.md`; figures in `figures/`; per-image metrics in
+  `metrics/masked_metrics_per_image.csv`.
