@@ -45,6 +45,24 @@ _IMAGENET_MEAN = (0.485, 0.456, 0.406)
 _IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
+def dino_preprocess(img, img_size, mean, std):
+    """Exact tensor transform applied before DINO. Shared by forward() and the
+    debug script so what you inspect is what training uses.
+
+    img: [B,1orC,H,W] in [0,1]. Returns [B,3,img_size,img_size], ImageNet-normed.
+    """
+    if img.shape[1] == 1:
+        img = img.repeat(1, 3, 1, 1)
+    img = F.interpolate(img, size=(img_size, img_size),
+                        mode='bilinear', align_corners=False)
+    return (img - mean) / std
+
+
+def dino_denormalize(img, mean, std):
+    """Invert ImageNet normalisation for display."""
+    return img * std + mean
+
+
 class _StubExtractor(nn.Module):
     """Deterministic stand-in for DINO used ONLY by the wiring sanity check.
 
@@ -100,11 +118,7 @@ class DINOv2Extractor(nn.Module):
     @torch.no_grad()
     def forward(self, img):
         # img: [B,1,H,W] or [B,3,H,W] in [0,1]  (A4)
-        if img.shape[1] == 1:
-            img = img.repeat(1, 3, 1, 1)
-        img = F.interpolate(img, size=(self.img_size, self.img_size),
-                            mode='bilinear', align_corners=False)
-        img = (img - self.mean) / self.std
+        img = dino_preprocess(img, self.img_size, self.mean, self.std)
         feats = self.dino.get_intermediate_layers(
             img, n=self.layers, reshape=False, return_class_token=False, norm=True)
         # each feats[i]: [B, N_patches, 768] -> mean-pool -> [B,768]  (A5)
