@@ -1,8 +1,174 @@
-# Holo_DINOv2_Restormer config
-# TODO: implement in July
-# Start from Holo_Baseline_Restormer.yml and add:
-#   - DINOv2 feature extractor (frozen ViT-B/14)
-#   - Cross-attention injection in bottleneck (Perceive-IR style)
-#   - render dataroot for visual prior input
-#   - name: Holo_DINOv2_Restormer
-#   - experiments_root: experiments/Holo_DINOv2_Restormer
+# =============================================================================
+# Holo Baseline Restormer — FULL ORIGINAL Restormer deraining recipe (300k).
+#
+# This config restores the upstream Restormer deraining training recipe
+# (total_iter=300000, full progressive patch schedule). The earlier 75k run is
+# obsolete (it never left progressive stage 1 / 128px).
+#
+# INTENTIONAL differences from the upstream deraining recipe:
+#   - network_g: inp_channels=1, out_channels=1   (CFR heatmaps are grayscale)
+#   - datasets:  type: Dataset_PairedImage_uint16 (uint16 PNG loader, /65535)
+#   - dataset paths point to our holographic_image_dataset/{train,val}_clean
+#     (GT) and /{train,val}_verynoisy (LQ input)
+#   - num_gpu: 1, num_worker_per_gpu: 2           (single A100 on HPC)
+#   - logger.save_checkpoint_freq: 2000           (HPC walltime resume safety)
+#   - logger.use_tb_logger: true                  (TensorBoard monitoring)
+#   - path.resume_state mechanism documented      (multi-job resume after kill)
+#
+#   NOTE (thesis): the upstream recipe assumes 8 GPUs => effective batch 64.
+#   We run 1 GPU => effective batch 8. This must be reported in the thesis.
+#
+#   - Progressive schedule truncated at native resolution: original 320/384
+#     stages would require reflect-padding 256x256 images, creating mirrored
+#     side-lobe artifacts that don't physically exist. The final three original
+#     stages (36k+36k+24k iters) are merged into one 96k-iter stage at 256
+#     (full image), batch 2.
+# =============================================================================
+
+# general settings
+name: Holo_DINOv2_Restormer_verynoisy
+model_type: ImageCleanModel
+scale: 1
+num_gpu: 1  # set num_gpu: 0 for cpu mode
+manual_seed: 100
+
+# dataset and data loader settings
+datasets:
+  train:
+    name: TrainSet
+    type: Dataset_PairedImage_uint16
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_verynoisy
+    geometric_augs: true
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    # data loader
+    use_shuffle: true
+    num_worker_per_gpu: 2
+    batch_size_per_gpu: 8
+
+    ### -------------Progressive training--------------------------
+    mini_batch_sizes: [8,5,4,2]             # Batch size per gpu
+    iters: [92000,64000,48000,96000]
+    gt_size: 256   # Max patch size = native image resolution (no reflect-padding)
+    gt_sizes: [128,160,192,256]  # Patch sizes for progressive training (capped at 256).
+    ### ------------------------------------------------------------
+
+    ### ------- Training on single fixed-patch size 128x128---------
+    # mini_batch_sizes: [8]
+    # iters: [300000]
+    # gt_size: 128
+    # gt_sizes: [128]
+    ### ------------------------------------------------------------
+
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    name: ValSet
+    type: Dataset_PairedImage_uint16
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_verynoisy
+    io_backend:
+      type: disk
+
+# network structures
+network_g:
+  type: RestormerDINO
+  inp_channels: 1
+  out_channels: 1
+  dim: 48
+  num_blocks: [4,6,6,8]
+  num_refinement_blocks: 4
+  heads: [1,2,4,8]
+  ffn_expansion_factor: 2.66
+  bias: False
+  LayerNorm_type: WithBias
+  dual_pixel_task: False
+  # --- DINOv2 FiLM guidance (the ONLY change vs baseline) ---
+  dino_layers: [0, 3, 7, 11]   # 1-indexed {1,4,8,12} -> 0-indexed block ids
+  dino_img_size: 224
+  dino_model_name: dinov2_vitb14
+  dino_hub_source: github      # 'local' + a clone path for offline nodes
+  dino_hub_dir: ~              # set to a writable TORCH_HOME shared across jobs
+  dino_weights: ~              # set to dinov2_vitb14_pretrain.pth for offline
+  dino_stub: false             # true ONLY for the wiring sanity check
+  film_hidden: 512
+
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  resume_state: ~   # null = fresh start
+                    # to resume: set to experiments/Holo_Baseline_Restormer/training_states/ITER.state
+                    # example:   experiments/Holo_Baseline_Restormer/training_states/92000.state
+
+# training settings
+train:
+  total_iter: 300000
+  warmup_iter: -1 # no warm up
+  use_grad_clip: true
+
+  # Original Restormer deraining schedule: two cycles.
+  # 1st cycle: fixed 3e-4 LR for 92k iters (eta_min == initial lr => constant).
+  # 2nd cycle: cosine anneal 3e-4 -> 1e-6 over 208k iters (92k -> 300k).
+  scheduler:
+    type: CosineAnnealingRestartCyclicLR
+    periods: [92000, 208000]
+    restart_weights: [1,1]
+    eta_mins: [0.0003, 0.000001]
+
+  mixing_augs:
+    mixup: false     # disabled for the verynoisy run
+    mixup_beta: 1.2
+    use_identity: true
+
+  optim_g:
+    type: AdamW
+    lr: !!float 3e-4
+    weight_decay: !!float 1e-4
+    betas: [0.9, 0.999]
+
+  # losses
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1
+    reduction: mean
+
+# validation settings
+val:
+  window_size: 8
+  val_freq: !!float 4e3
+  save_img: false
+  rgb2bgr: true
+  use_image: true
+  max_minibatch: 8
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+
+# logging settings
+logger:
+  print_freq: 1000
+  save_checkpoint_freq: !!float 2e3
+  use_tb_logger: true
+  tb_logger_dir: tb_logger/Holo_DINOv2_Restormer_verynoisy
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500
