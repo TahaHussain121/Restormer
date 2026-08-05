@@ -11,15 +11,32 @@ before the run so the prediction can't be moved to fit the result.
 
 > Does adding semantic guidance from a frozen DINOv2, injected as FiLM at the
 > bottleneck and decoder, improve verynoisy holographic denoising over the pure
-> Restormer baseline — when *nothing else* changes?
+> Restormer baseline — when *nothing else* changes? And does the SOURCE of the
+> semantic signal matter: a clean canonical render vs. the actual noisy input?
 
 The baseline's headline weakness (Exp 2) is over-smoothing: the prediction keeps
 only ~22 % of the ground-truth high-frequency energy. The hypothesis is that a
 semantic prior tells the network *what object* it is reconstructing, so it can
 restore structure the pixel loss alone has no incentive to keep.
 
-This is a **single-variable** experiment. The only difference from Exp 2 is the
-semantic guidance. Everything in the "held identical" list below is unchanged.
+## Two arms (this is the one variable being studied)
+
+Both arms are identical to each other and to the Exp 2 baseline in every way
+except **what image DINO looks at**. Restormer always processes the noisy LQ.
+
+| Arm | DINO sees | Config | Dataset / model |
+|---|---|---|---|
+| **B — lqDINO** | the **noisy LQ crop** (same tensor Restormer gets) | `Holo_DINOv2_lqDINO_Restormer.yml` | `Dataset_PairedImage_uint16` / `ImageCleanModel` |
+| **A — renderDINO** | the **black-bg render**, cropped+augmented identically to the LQ | `Holo_DINOv2_renderDINO_Restormer.yml` | `Dataset_PairedImage_uint16_Render` / `ImageCleanModelRender` |
+
+Arm A tests "clean semantic reference"; arm B tests "self-conditioning on the
+degraded input". The render in arm A goes through the **same random crop and
+flip** as the LQ (via `paired_random_crop`/`random_augmentation`), so DINO sees
+the exact same region — the only difference from arm B is clean-render pixels vs
+noisy pixels. Both are compared against the Exp 2 no-DINO baseline.
+
+The FiLM wiring, injection points, zero-init identity, and everything in the
+"held identical" list are shared by both arms.
 
 ---
 
@@ -61,64 +78,82 @@ numerically identical to the baseline (proved by the sanity check).
 
 ---
 
-## Config values (the diff)
+## Config values (the diff vs Exp 2 baseline)
 
+Shared by both arms — the FiLM/DINO block on `network_g` (type `RestormerDINO`):
 ```yaml
-name: Holo_DINOv2_Restormer_verynoisy      # was Holo_Baseline_Restormer_verynoisy
 network_g:
   type: RestormerDINO                       # was Restormer
   # ... all Restormer kwargs unchanged ...
   dino_layers: [0, 3, 7, 11]                # 1-indexed {1,4,8,12}
   dino_img_size: 224
   dino_model_name: dinov2_vitb14
-  dino_hub_source: github
-  dino_hub_dir: ~
-  dino_weights: ~
-  dino_stub: false
+  dino_hub_source: github ; dino_hub_dir: ~ ; dino_weights: ~   # set for offline
+  dino_stub: false                          # true ONLY for the sanity check
   film_hidden: 512
-logger:
-  tb_logger_dir: tb_logger/Holo_DINOv2_Restormer_verynoisy
+```
+Arm B (lqDINO) changes nothing else — `model_type: ImageCleanModel`,
+`Dataset_PairedImage_uint16`. Arm A (renderDINO) additionally sets:
+```yaml
+model_type: ImageCleanModelRender
+datasets: {train,val}:
+  type: Dataset_PairedImage_uint16_Render
+  dataroot_render: .../{train,val}_renders_blackbg   # the only new data path
 ```
 
-Files: arch `basicsr/models/archs/restormer_dino_arch.py`; config
-`Deraining_Holo/Options/Holo_DINOv2_Restormer.yml`; sanity check
-`Deraining_Holo/sanity_check_dino_film.py`.
+Files:
+- arch `basicsr/models/archs/restormer_dino_arch.py`
+- render dataset `basicsr/data/paired_image_uint16_render_dataset.py`
+- render model `basicsr/models/image_clean_render_model.py`
+- configs `Deraining_Holo/Options/Holo_DINOv2_lqDINO_Restormer.yml` (B),
+  `Holo_DINOv2_renderDINO_Restormer.yml` (A)
+- sanity check `Deraining_Holo/sanity_check_dino_film.py`
 
 ---
 
 ## Where DINO features are computed, and caching
 
-- **Computed inside `RestormerDINO.forward`**, from the LQ input, once per
-  forward pass. basicsr calls `net_g(self.lq)` unchanged — no training-loop edit.
-- **Recompute per step; do NOT cache.** DINO is frozen, so caching is only valid
-  if the *exact same pixels* recur. They do not: training uses random crops +
-  geometric augmentation, so every step sees a different tensor. A cache keyed by
-  image id would be stale the moment the crop or flip changes. Precomputing
-  per-image (whole-image, no aug) would be a *different* design — DINO would see
-  something the Restormer never sees — so it is rejected here.
-- **Cost:** one frozen ViT-B forward per step at 224×224, under `no_grad`. This
-  is the price of the guidance and is inherent to the design.
+- **Computed inside `RestormerDINO.forward`**, once per forward pass.
+  - Arm B: `net_g(self.lq)` — DINO sees the LQ (dino_img defaults to None).
+  - Arm A: `ImageCleanModelRender` passes the render as `dino_img`, so
+    `net_g(self.lq, dino_img=render)` — DINO sees the render crop.
+- **Recompute per step; do NOT cache — in both arms.** DINO is frozen, so caching
+  is only valid if the *exact same pixels* recur. They do not: training uses
+  random crops + geometric augmentation, so every step sees a different tensor —
+  and in arm A the render is cropped/flipped identically to the LQ, so it changes
+  every step too. A cache keyed by image id would be stale the moment the crop or
+  flip changes. (Caching *would* be possible if arm A fed DINO the whole,
+  uncropped render — but then it would see a different spatial extent than the LQ
+  and the A/B comparison would confound "clean vs noisy" with "whole vs crop", so
+  that option is rejected.)
+- **Cost:** one frozen ViT-B forward per step at 224×224, under `no_grad`, in
+  both arms — so they are equal in compute and differ only in DINO's input.
 
 ---
 
 ## Pre-registered prediction and falsification
 
-**Prediction.** On the 338-image test set, DINO-FiLM beats the Exp 2 baseline on
-the **masked (foreground)** metric — the honest measure — by a margin that clears
-run-to-run noise:
+**Prediction.** On the 338-image test set, measured on the **masked (foreground)**
+metric (the honest measure), vs the Exp 2 baseline (18.313 dB, HF ratio 0.216):
 
-- masked PSNR improves by **≥ 0.3 dB** over 18.313 dB, **and**
-- Pred/GT high-frequency energy ratio rises meaningfully above **0.22**
-  (i.e. measurably less over-smoothing).
+1. At least one DINO arm improves masked PSNR by **≥ 0.3 dB**, **and** raises the
+   Pred/GT high-frequency energy ratio above **0.22** (measurably less
+   over-smoothing).
+2. Arm A (renderDINO, clean semantic reference) **≥** arm B (lqDINO) on masked
+   PSNR — a clean object descriptor should help at least as much as conditioning
+   on the degraded input.
 
 **What would falsify it.** Any of:
-- masked PSNR change within ±0.3 dB of baseline → guidance did nothing useful;
-- masked PSNR *drops* → guidance hurts;
-- PSNR rises but the HF-energy ratio does **not** move → it improved by some
-  other route, not by fixing the over-smoothing the hypothesis targets.
+- both arms within ±0.3 dB of baseline → guidance does nothing useful;
+- either arm *drops* masked PSNR → guidance hurts;
+- PSNR rises but the HF-energy ratio does **not** move → improved by some other
+  route, not by fixing the over-smoothing the hypothesis targets;
+- arm B beats arm A by > 0.3 dB → the clean render is *not* the better signal,
+  which would itself be an interesting (hypothesis-2-falsifying) result.
 
-The ±0.3 dB band is a stand-in for a proper significance test; a stricter version
-would train ≥2 seeds per arm and compare distributions. Checkpoint selection and
+Single seed per arm (as decided) — so treat a sub-0.3 dB gap between A and B as a
+tie, not a ranking. The ±0.3 dB band is a stand-in for a proper significance
+test; a stricter version would train ≥2 seeds per arm. Checkpoint selection and
 the test-split caveat from Exp 2 (`../results.md`) apply here too — keep them
 consistent across both arms so they cancel.
 

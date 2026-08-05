@@ -184,10 +184,13 @@ class RestormerDINO(Restormer):
             self.dino.train(False)   # stay frozen/eval
         return self
 
-    def forward(self, inp_img, apply_film=True):
-        # --- semantic guidance from the (noisy) input image ---
+    def forward(self, inp_img, dino_img=None, apply_film=True):
+        # --- semantic guidance ---
+        # dino_img is the image DINO looks at. If None, DINO sees the same LQ
+        # input as Restormer (Variant B). If provided (e.g. the black-bg render),
+        # DINO sees that instead (Variant A). Restormer always processes inp_img.
         if apply_film:
-            feat = self.dino(inp_img)
+            feat = self.dino(inp_img if dino_img is None else dino_img)
             gammas, betas = self.film(feat)
 
         # --- baseline Restormer forward, with FiLM at 4 points ---

@@ -26,8 +26,12 @@
 # =============================================================================
 
 # general settings
-name: Holo_DINOv2_Restormer_verynoisy
-model_type: ImageCleanModel
+# DINO VARIANT A (renderDINO): DINO sees the black-background RENDER, cropped
+# and augmented identically to the LQ (Dataset_PairedImage_uint16_Render passes
+# it as 'dino'; ImageCleanModelRender forwards it as dino_img). Restormer still
+# processes the noisy LQ. The render is the ONLY difference vs Variant B.
+name: Holo_DINOv2_renderDINO_verynoisy
+model_type: ImageCleanModelRender
 scale: 1
 num_gpu: 1  # set num_gpu: 0 for cpu mode
 manual_seed: 100
@@ -36,9 +40,10 @@ manual_seed: 100
 datasets:
   train:
     name: TrainSet
-    type: Dataset_PairedImage_uint16
+    type: Dataset_PairedImage_uint16_Render
     dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_clean
     dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_verynoisy
+    dataroot_render: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_renders_blackbg
     geometric_augs: true
 
     filename_tmpl: '{}'
@@ -69,9 +74,10 @@ datasets:
 
   val:
     name: ValSet
-    type: Dataset_PairedImage_uint16
+    type: Dataset_PairedImage_uint16_Render
     dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_clean
     dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_verynoisy
+    dataroot_render: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_renders_blackbg
     io_backend:
       type: disk
 
@@ -163,7 +169,7 @@ logger:
   print_freq: 1000
   save_checkpoint_freq: !!float 2e3
   use_tb_logger: true
-  tb_logger_dir: tb_logger/Holo_DINOv2_Restormer_verynoisy
+  tb_logger_dir: tb_logger/Holo_DINOv2_renderDINO_verynoisy
   wandb:
     project: ~
     resume_id: ~
