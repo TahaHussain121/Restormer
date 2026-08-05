@@ -34,6 +34,8 @@
 ##     concat the 4 layers -> [B,3072] as the FiLM head input.
 ## -------------------------------------------------------------------------
 
+import os
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -84,7 +86,7 @@ class DINOv2Extractor(nn.Module):
     """Frozen DINOv2 ViT-B/14 multi-layer pooled feature extractor (A2-A5)."""
 
     def __init__(self, layers=(0, 3, 7, 11), img_size=224,
-                 hub_repo='facebookresearch/dinov2', model_name='dinov2_vitb14',
+                 github_repo='facebookresearch/dinov2', model_name='dinov2_vitb14',
                  hub_source='github', hub_dir=None, weights=None):
         super().__init__()
         self.layers = tuple(layers)
@@ -92,15 +94,38 @@ class DINOv2Extractor(nn.Module):
         self.embed_dim = 768                       # A2
         self.feat_dim = self.embed_dim * len(self.layers)  # A5
 
-        if hub_dir is not None:
-            torch.hub.set_dir(hub_dir)
-        # Offline: point hub_source at a local clone of facebookresearch/dinov2
-        # and pass weights=<path to dinov2_vitb14_pretrain.pth>.
-        self.dino = torch.hub.load(hub_repo, model_name, source=hub_source,
-                                   pretrained=(weights is None))
-        if weights is not None:
+        if hub_source == 'local':
+            # OFFLINE: hub_dir must be the cached repo DIRECTORY (contains
+            # hubconf.py), and weights the cached .pth. torch.hub.load treats the
+            # first arg as a local path when source='local' -- passing a
+            # github-style string here is the bug this replaces. Fail loudly.
+            if hub_dir is None or not os.path.isdir(hub_dir):
+                raise FileNotFoundError(
+                    f'dino_hub_dir must be the cached DINOv2 repo directory '
+                    f'(with hubconf.py); got {hub_dir!r}')
+            if not os.path.isfile(os.path.join(hub_dir, 'hubconf.py')):
+                raise FileNotFoundError(
+                    f'{hub_dir!r} has no hubconf.py -- not a torch.hub repo dir')
+            if weights is None or not os.path.isfile(weights):
+                raise FileNotFoundError(
+                    f'dino_weights must point at the cached .pth; got {weights!r}')
+            self.dino = torch.hub.load(hub_dir, model_name, source='local',
+                                       pretrained=False)
             sd = torch.load(weights, map_location='cpu')
-            self.dino.load_state_dict(sd)
+            # strict=True: raises if any key mismatches -> a silently random ViT
+            # can never slip through. Store the (empty-on-success) key lists.
+            self.load_result = self.dino.load_state_dict(sd, strict=True)
+        else:
+            # ONLINE fallback (login node): download/cache from GitHub.
+            if hub_dir is not None:
+                torch.hub.set_dir(hub_dir)
+            self.dino = torch.hub.load(github_repo, model_name, source='github',
+                                       pretrained=(weights is None))
+            if weights is not None:
+                sd = torch.load(weights, map_location='cpu')
+                self.load_result = self.dino.load_state_dict(sd, strict=True)
+            else:
+                self.load_result = None   # weights came from pretrained=True
 
         self.register_buffer('mean', torch.tensor(_IMAGENET_MEAN).view(1, 3, 1, 1))
         self.register_buffer('std', torch.tensor(_IMAGENET_STD).view(1, 3, 1, 1))

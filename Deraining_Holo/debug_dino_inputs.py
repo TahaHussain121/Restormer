@@ -69,15 +69,17 @@ def dump_arm(arm, gt_size, n=8):
         src = render if arm == 'A' else lq
         dino_in = dino_preprocess(src.unsqueeze(0), 224, MEAN, STD)   # actual DINO input
         dino_disp = dino_denormalize(dino_in, MEAN, STD)[0]
-        # background fraction of the render as DINO would see it (resized to 224)
-        rend224 = torch.nn.functional.interpolate(
-            render.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False)[0]
-        bg = (rend224.mean(0) <= BG_THR).float().mean().item()
+        # background fraction of the ACTUAL DINO input (arm A: render, arm B: LQ),
+        # measured on the 224x224 tensor DINO sees.
+        src224 = torch.nn.functional.interpolate(
+            src.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False)[0]
+        bg = (src224.mean(0) <= BG_THR).float().mean().item()
         bg_fracs.append(bg)
+        bg_label = 'render' if arm == 'A' else 'LQ'
 
         panels = [(lq, 'LQ crop (Restormer in)'), (gt, 'GT crop'),
                   (render, 'render crop'),
-                  (dino_disp, f'DINO input (denorm)\nbg={bg:.0%}')]
+                  (dino_disp, f'DINO input (denorm)\n{bg_label} bg={bg:.0%}')]
         for j, (t, title) in enumerate(panels):
             ax[i, j].imshow(to_disp(t)); ax[i, j].set_xticks([]); ax[i, j].set_yticks([])
             ax[i, j].set_title(f'{title}\n{stats(t)}', fontsize=7)
@@ -153,12 +155,13 @@ def pipeline_report():
     print('     pre-normalisation range, and ImageNet norm is applied on top. Not a')
     print('     double-normalisation bug. (Content is still grayscale = OOD for DINO.)')
 
-    # real DINO forward -> [B,3072]
-    os.environ.setdefault('TORCH_HOME', '/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub')
-    torch.hub.set_dir(os.path.join(os.environ['TORCH_HOME'], 'hub'))
+    # real DINO forward -> [B,3072]  (offline: cached repo dir + weights)
+    TH = '/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub'
+    repo = f'{TH}/hub/facebookresearch_dinov2_main'
+    wts = f'{TH}/hub/checkpoints/dinov2_vitb14_pretrain.pth'
     try:
         ext = DINOv2Extractor(layers=(0, 3, 7, 11), hub_source='local',
-                              hub_dir=os.path.join(os.environ['TORCH_HOME'], 'hub'))
+                              hub_dir=repo, weights=wts)
         with torch.no_grad():
             feat = ext(render.unsqueeze(0))
         print(f'  real DINO forward: output {tuple(feat.shape)} '

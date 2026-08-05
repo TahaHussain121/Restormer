@@ -94,9 +94,9 @@ network_g:
   dino_layers: [0, 3, 7, 11]   # 1-indexed {1,4,8,12} -> 0-indexed block ids
   dino_img_size: 224
   dino_model_name: dinov2_vitb14
-  dino_hub_source: github      # 'local' + a clone path for offline nodes
-  dino_hub_dir: ~              # set to a writable TORCH_HOME shared across jobs
-  dino_weights: ~              # set to dinov2_vitb14_pretrain.pth for offline
+  dino_hub_source: local       # offline: load from the cached repo dir, no internet
+  dino_hub_dir: /home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub/hub/facebookresearch_dinov2_main
+  dino_weights: /home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub/hub/checkpoints/dinov2_vitb14_pretrain.pth
   dino_stub: false             # true ONLY for the wiring sanity check
   film_hidden: 512
 
