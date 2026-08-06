@@ -5,10 +5,11 @@ covers the DINO/E1 work specifically; CONTEXT.md is the project-wide primer and
 DEVLOG.md is the append-only step log.
 
 ## One-line status
-E1 (DINOv2 FiLM guidance) is **built, wired, verified, centered, and NOT trained**.
-Both arms are ready to launch and the launch scripts now exist. The pre-launch
-decisions are settled (2026-08-06, see "Decisions taken"); **nothing launches
-until the user says so**.
+E1 (DINOv2 FiLM guidance) is **TRAINING** as of 2026-08-06 — both arms launched:
+job **1771016 renderDINO on a100**, job **1771017 lqDINO on v100**, self-chaining
+to 300k (23 h walltime, MAX_CHAIN=8). Submitted ONCE per arm — **do not resubmit**;
+each job queues its own successor and basicsr auto-resumes. See DEVLOG Step 21 for
+the isolation audit and the pre-launch smoke results.
 
 ---
 

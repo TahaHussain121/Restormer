@@ -584,3 +584,50 @@ are untested against the scheduler.
 Still open: the [SOURCE NEEDED] layer-recipe citation, and `test_holo.py` cannot
 yet load/pass the render for arm-A test-time eval (needed before results, not
 before launch).
+
+## Step 21 — E1 LAUNCHED, both arms (2026-08-06)
+
+Submitted after the Step 20 changes and the isolation audit below.
+
+  job 1771016  holo_renderDINO  a100  -> Holo_DINOv2_renderDINO_verynoisy
+  job 1771017  holo_lqDINO      v100  -> Holo_DINOv2_lqDINO_verynoisy
+
+Both self-chaining (sbatch --dependency=afterany), 23 h walltime, MAX_CHAIN=8,
+300k iters each. Submitted ONCE per arm -- do NOT resubmit; each job queues its
+own successor and basicsr auto-resumes from the latest .state.
+
+Different GPUs per arm is a deliberate user choice (renderDINO carries the
+measured cross-domain signal, so it got the faster card). THESIS NOTE: this
+affects wall-clock only -- same code, seed 100, schedule, data and split -- but
+per-arm training time is not a like-for-like comparison and must be stated.
+
+ISOLATION AUDIT (done before submitting):
+  - experiments_root comes from the yml `name`, so each arm owns
+    experiments/Holo_DINOv2_{arm}_verynoisy + tb_logger/<same name>. Neither
+    existed; neither collides with Holo_Baseline_Restormer{,_verynoisy}.
+    (train.py line ~165 uses opt['name'] for tb, not logger.tb_logger_dir --
+    the config field is inert, but the name-derived path is unique anyway.)
+  - basicsr's mkdir_and_rename archiving runs ONLY when resume_state is None,
+    and only on the arm's own dir => chained resumes never archive, and Exp 2's
+    directory cannot be reached from these runs.
+  - auto-resume scans experiments/<name>/training_states/, keyed on name, so
+    each arm can only resume itself.
+  - experiments/Holo_chain_state_{lqDINO,renderDINO}/ created BEFORE submitting:
+    SLURM opens the --output file at job start, so the in-job mkdir -p would
+    have been too late for job #1 of each chain.
+  - datasets read-only and complete: train_/val_ x clean/verynoisy/
+    renders_blackbg all present at 6101/339.
+  - quota: 285G used of 954G soft on /home/woody; two 300k runs ~90G of
+    checkpoints. Prune both as soon as they finish (Step 19b cost 44G/run).
+  - MAX_CHAIN raised 5 -> 8 so a slower-per-step run cannot silently stop short.
+
+PRE-LAUNCH SMOKE (CPU, both arms): real forward+backward+grad-clip step
+completes; DINO gets 0 gradients (frozen); FiLM head and backbone both get
+gradients; loss finite. Pre-clip grad norms are large (7e6-9e7) but so is the
+Exp 2 baseline's at the same seed (2.1e7; 3e6-2e7 across seeds 0/1/2) -- inherent
+to Restormer at init, not introduced by DINO/FiLM, and the reason upstream clips
+to 0.01.
+
+WATCH: tail experiments/Holo_chain_state_{renderDINO,lqDINO}/slurm_chain_<job>.out
+and experiments/Holo_DINOv2_{arm}_verynoisy/*.log. A crash inside 1800 s writes
+CHAIN_ABORTED and cancels the successor rather than burning the chain.

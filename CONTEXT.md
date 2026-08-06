@@ -139,7 +139,8 @@ Dataset note: TWO datasets are now in play.
                                 no test split. train_/val_verynoisy built as symlinks from
                                 splits/*.txt (see DEVLOG Step 19).
 
-Last change: 2026-08-06 — E1 CENTERING added + pre-launch decisions settled (DEVLOG Step 20).
+Last change: 2026-08-06 — E1 LAUNCHED, both arms (DEVLOG Step 21): job 1771016 renderDINO on a100,
+job 1771017 lqDINO on v100, self-chaining to 300k. Earlier the same day: E1 CENTERING added + pre-launch decisions settled (DEVLOG Step 20).
 The FiLM head is now fed `pooled − mean` (fixed per-arm mean over 300 training crops, registered
 buffer, config field `dino_feat_mean`); identity-at-init re-verified with real DINOv2 + real means
 (max diff 0.000e+00, both arms); both arms confirmed; no raw-feature arm (predicted null, saves
