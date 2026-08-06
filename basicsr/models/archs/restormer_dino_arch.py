@@ -32,6 +32,17 @@
 ##     so variable Restormer input sizes are fine.
 ## A5. Per selected layer we mean-pool the patch tokens (CLS dropped) -> [B,768];
 ##     concat the 4 layers -> [B,3072] as the FiLM head input.
+## A6. CENTERING. The pooled vector is ~95% a shared constant offset (measured:
+##     ||mean||~106 vs ||residual||~22), and the measured object signal lives
+##     ENTIRELY in the residual (raw features are object-blind, d~0.03 n.s.;
+##     centered d=+0.25/+8.6sigma). So a FIXED per-arm mean, precomputed over
+##     training crops by Deraining_Holo/compute_dino_feat_mean.py, is subtracted
+##     at the end of the extractor forward. Fixed mean, NOT BatchNorm: the
+##     progressive schedule drops the batch to 2 at 256px and a two-sample mean
+##     is noise, not a mean. The mean is a registered buffer, so it travels with
+##     the checkpoint and a chained resume cannot silently use a different one.
+##     Subtracting a constant cannot break the zero-init identity (gamma=beta=0
+##     regardless of the feature), but the sanity check re-verifies it anyway.
 ## -------------------------------------------------------------------------
 
 import os
@@ -65,21 +76,46 @@ def dino_denormalize(img, mean, std):
     return img * std + mean
 
 
+def load_dino_feat_mean(path, feat_dim):
+    """Load a precomputed pooled-DINO mean vector -> [1, feat_dim] float32.
+
+    Accepts either a bare tensor or the dict written by
+    Deraining_Holo/compute_dino_feat_mean.py ({'mean': [D], 'meta': {...}}).
+    Fails loudly on a missing file or a width mismatch -- a wrong-arm or
+    wrong-layer-set mean must never be silently broadcast into training.
+    """
+    if not os.path.isfile(path):
+        raise FileNotFoundError(
+            f'dino_feat_mean must point at a precomputed .pt; got {path!r}')
+    obj = torch.load(path, map_location='cpu')
+    mu = obj['mean'] if isinstance(obj, dict) else obj
+    mu = torch.as_tensor(mu, dtype=torch.float32).reshape(-1)
+    if mu.numel() != feat_dim:
+        raise ValueError(
+            f'dino_feat_mean {path!r} has width {mu.numel()}, expected {feat_dim} '
+            f'-- wrong layer set or wrong model?')
+    return mu.view(1, feat_dim)
+
+
 class _StubExtractor(nn.Module):
     """Deterministic stand-in for DINO used ONLY by the wiring sanity check.
 
     Returns a fixed random feature of the correct width so the identity test
     can run offline. NEVER use for training -- carries no semantic information.
+    Honours feat_mean so the sanity check exercises the same centering path.
     """
 
-    def __init__(self, feat_dim):
+    def __init__(self, feat_dim, feat_mean=None):
         super().__init__()
         self.feat_dim = feat_dim
+        mu = (load_dino_feat_mean(feat_mean, feat_dim) if feat_mean is not None
+              else torch.zeros(1, feat_dim))
+        self.register_buffer('feat_mean', mu)
 
     def forward(self, x):
         g = torch.Generator(device='cpu').manual_seed(0)
         f = torch.randn(x.shape[0], self.feat_dim, generator=g)
-        return f.to(x.device, x.dtype)
+        return f.to(x.device, x.dtype) - self.feat_mean.to(x.device, x.dtype)
 
 
 class DINOv2Extractor(nn.Module):
@@ -87,7 +123,7 @@ class DINOv2Extractor(nn.Module):
 
     def __init__(self, layers=(0, 3, 7, 11), img_size=224,
                  github_repo='facebookresearch/dinov2', model_name='dinov2_vitb14',
-                 hub_source='github', hub_dir=None, weights=None):
+                 hub_source='github', hub_dir=None, weights=None, feat_mean=None):
         super().__init__()
         self.layers = tuple(layers)
         self.img_size = img_size
@@ -130,6 +166,13 @@ class DINOv2Extractor(nn.Module):
         self.register_buffer('mean', torch.tensor(_IMAGENET_MEAN).view(1, 3, 1, 1))
         self.register_buffer('std', torch.tensor(_IMAGENET_STD).view(1, 3, 1, 1))
 
+        # A6. Fixed per-arm centering vector. Zeros == no centering (the buffer
+        # always exists so the state_dict keys are identical either way).
+        self.centered = feat_mean is not None
+        mu = (load_dino_feat_mean(feat_mean, self.feat_dim) if self.centered
+              else torch.zeros(1, self.feat_dim))
+        self.register_buffer('feat_mean', mu)
+
         for p in self.dino.parameters():
             p.requires_grad_(False)
         self.dino.eval()
@@ -147,8 +190,8 @@ class DINOv2Extractor(nn.Module):
         feats = self.dino.get_intermediate_layers(
             img, n=self.layers, reshape=False, return_class_token=False, norm=True)
         # each feats[i]: [B, N_patches, 768] -> mean-pool -> [B,768]  (A5)
-        pooled = [f.mean(dim=1) for f in feats]
-        return torch.cat(pooled, dim=1)            # [B, 768*len(layers)]
+        pooled = torch.cat([f.mean(dim=1) for f in feats], dim=1)   # [B, 768*L]
+        return pooled - self.feat_mean.to(pooled.dtype)             # A6 centering
 
 
 class FiLMHead(nn.Module):
@@ -195,6 +238,7 @@ class RestormerDINO(Restormer):
                  dino_hub_source='github',
                  dino_hub_dir=None,
                  dino_weights=None,
+                 dino_feat_mean=None,      # .pt with the per-arm pooled mean (A6)
                  dino_stub=False,          # True -> offline stub, wiring test only
                  film_hidden=512,
                  **restormer_kwargs):
@@ -208,12 +252,14 @@ class RestormerDINO(Restormer):
         self.film_channels = [ch_bottleneck, ch_dec3, ch_dec2, ch_dec1]
 
         if dino_stub:
-            self.dino = _StubExtractor(768 * len(dino_layers))
+            self.dino = _StubExtractor(768 * len(dino_layers),
+                                       feat_mean=dino_feat_mean)
         else:
             self.dino = DINOv2Extractor(
                 layers=dino_layers, img_size=dino_img_size,
                 model_name=dino_model_name, hub_source=dino_hub_source,
-                hub_dir=dino_hub_dir, weights=dino_weights)
+                hub_dir=dino_hub_dir, weights=dino_weights,
+                feat_mean=dino_feat_mean)
 
         self.film = FiLMHead(self.dino.feat_dim, self.film_channels, hidden=film_hidden)
 

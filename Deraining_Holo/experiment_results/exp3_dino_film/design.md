@@ -89,6 +89,7 @@ network_g:
   dino_img_size: 224
   dino_model_name: dinov2_vitb14
   dino_hub_source: github ; dino_hub_dir: ~ ; dino_weights: ~   # set for offline
+  dino_feat_mean: .../dino_feat_mean_{lqDINO,renderDINO}.pt     # centering (see below)
   dino_stub: false                          # true ONLY for the sanity check
   film_hidden: 512
 ```
@@ -162,7 +163,13 @@ consistent across both arms so they cancel.
 ## Before spending GPU hours
 
 1. `python Deraining_Holo/sanity_check_dino_film.py` — proves identity at init
-   (offline, CPU, seconds). **PASSED** on 2026-08-05: max abs diff 0.000e+00.
+   (offline, CPU). **PASSED** on 2026-08-05: max abs diff 0.000e+00.
+   **Re-run and PASSED again on 2026-08-06, after the centering change (A1)**,
+   now including a real-DINOv2 part that loads each arm's actual mean vector:
+   for both arms `max|film_on − film_off| = 0.000e+00` and
+   `max|film_model − baseline| = 0.000e+00`, and the extractor output was
+   verified equal to `raw_pooled − feat_mean` (max residual 0.00e+00) with the
+   buffer byte-equal to the `.pt` named in the yml.
 2. Make DINOv2 available (see the arch header): the compute nodes are offline and
    `xformers`/`timm` are absent, so `torch.hub.load(..., source='github')` will
    fail on a compute node. Pre-download `dinov2_vitb14` weights + clone the repo
@@ -244,3 +251,116 @@ the FiLM input is now well-justified, not optional. Without centering, raw
 render features are near object-blind and renderDINO would likely come back
 near-null. Prediction stays: small gain, renderDINO ≥ lqDINO, conditional on
 centered features.
+
+---
+
+## Amendments made before training (2026-08-06)
+
+All five items below were written **before either arm was launched**. Nothing
+here is a post-hoc reading. The training schedule is unchanged.
+
+### A1. Centering is now part of E1 (design change, applied)
+
+The FiLM head is fed `pooled − mean` instead of `pooled`, where `mean` is a
+**fixed, per-arm vector precomputed over 300 training crops** and subtracted at
+the end of the DINO extractor's forward.
+
+*Why this and not BatchNorm:* the progressive schedule drops the batch to **2**
+at 256px, and a two-sample batch mean is noise, not a mean. A fixed vector also
+keeps the guidance signal stationary over the run, so a change in FiLM output
+can only come from the image, never from batch composition.
+
+*Why it counts as measured, not guessed:* in raw pooled space the cross-domain
+signal does not exist — the corrected render↔radar test gives **d ≈ 0.03 (n.s.)
+at crop 128 and null at 256**. Centered, the same test gives **d = +0.25 (+8.6σ)
+and +0.17 (+6.0σ)**. The signal the renderDINO arm is supposed to exploit is a
+property of the centered residual only. Feeding raw features would be testing a
+representation already measured to be object-blind.
+
+How the mean is built (`Deraining_Holo/compute_dino_feat_mean.py`, seed 0):
+
+- crops drawn through the arm's **own dataset class**, so the exact training data
+  path (same random crop, same geometric augs, same loader and value range);
+- **train split only** — no val/test images touch the mean;
+- crop sizes drawn **in proportion to the progressive schedule's iteration
+  counts** (92/64/48/96 crops at 128/160/192/256, matching 92k/64k/48k/96k), so
+  the mean matches the crop-size mix the run actually sees rather than one stage;
+- arm-specific by construction: renderDINO's mean is over **render** crops,
+  lqDINO's over **noisy-LQ** crops. The two arms still differ only in what image
+  DINO looks at; the mean follows the arm's domain because that is what an offset
+  is.
+
+Measured on those 300 crops (schedule-mixed, so not directly comparable to the
+95.6 % figure quoted earlier for full-frame renders at one size — mixing crop
+sizes adds real variance and lowers the offset share):
+
+| arm | ‖mean‖ | mean ‖residual‖ | offset share of ‖feature‖² |
+|---|---|---|---|
+| renderDINO | 102.23 | 32.63 | 90.0 % |
+| lqDINO | 85.63 | 35.40 | 84.9 % |
+
+Implementation: `dino_feat_mean` config field → registered **buffer** in
+`DINOv2Extractor`. Being a buffer, it is saved into the checkpoint, so a chained
+resume cannot silently pick up a different mean. Vectors are committed at
+`experiment_results/exp3_dino_film/dino_feat_mean_{renderDINO,lqDINO}.pt` with
+full provenance metadata.
+
+**Zero-init identity re-verified after this change** — see "Before spending GPU
+hours" below. Subtracting a constant cannot break identity (γ=β=0 whatever the
+feature), but it was confirmed rather than assumed.
+
+### A2. Raw (uncentered) features are NOT run as a separate baseline arm
+
+A third arm would cost ~3 GPU-days to confirm a **predicted null**: raw pooled
+features were already measured object-blind (render↔radar d ≈ 0.03, n.s.). With
+the thesis deadline that is a bad trade. Reported as: *raw pooled features were
+measured object-blind (d ≈ 0.03, n.s.); centering was therefore adopted before
+training rather than ablated.* If GPU time frees up later it can be added as an
+optional row — it is not part of E1's claim set now.
+
+Consequence, stated plainly: E1 cannot attribute any observed gain to centering
+specifically, because the uncentered variant is not trained. The evidence for
+centering is the pre-training feature measurement, not a training ablation.
+
+### A3. Both arms are run
+
+lqDINO is not dropped. It matches the published recipes, it works without a
+render at inference, and if it comes back flat while renderDINO does not, that
+contrast is itself a result.
+
+### A4. Named candidate explanation, registered in advance, if E1 underperforms
+
+**The DINO object signal weakens as crop size grows, in both arms:**
+
+| arm | crop 128 | crop 256 | source test |
+|---|---|---|---|
+| renderDINO | +0.249 (+8.6σ) | +0.167 (+6.0σ) | render↔radar, `render_radar_similarity.py` |
+| lqDINO | +0.183 (+3.7σ) | −0.123 (n.s.) | noisy↔clean, `analyze_dino_features.py` |
+
+The progressive schedule spends its **final 96k iterations at crop 256** — the
+phase doing the finest reconstruction, and the phase whose weights are kept. So
+the guidance signal is **strongest early and weakest exactly where it matters
+most**; for lqDINO it is measurably gone by then.
+
+Registered now as a **candidate explanation to be invoked only if E1
+underperforms**, so it cannot be mistaken for a post-hoc rescue. It is not a
+prediction that E1 will fail, and it is **not** a reason to change the schedule:
+the schedule is held identical to Exp 2 so the arms remain comparable to the
+baseline. Testing this explanation would need a separate experiment (e.g. tiled
+DINO inputs at 256, or holding the crop at 128), which is a different row.
+
+### A5. The two arms measure different things — their d values are not scores
+
+Restated so the numbers in the table above are not misread as a ranking:
+
+- **lqDINO's d** comes from *noisy heatmap vs its own clean pair* — it measures
+  **noise robustness** of the pooled feature within the radar domain.
+- **renderDINO's d** comes from *render vs the same object's radar heatmap* — it
+  measures **cross-domain correspondence** between two different modalities.
+
+Different anchors, different comparison domains, different tests. "+0.249 >
++0.183" does **not** mean renderDINO carries more signal than lqDINO. Each d is
+only interpretable against its own null (0) and its own σ. The pre-registered
+prediction that renderDINO ≥ lqDINO rests on the argument that a clean object
+descriptor should be at least as useful as one extracted from the degraded
+input, **not** on comparing these two numbers.

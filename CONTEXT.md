@@ -139,7 +139,14 @@ Dataset note: TWO datasets are now in play.
                                 no test split. train_/val_verynoisy built as symlinks from
                                 splits/*.txt (see DEVLOG Step 19).
 
-Last change: 2026-08-05 — E1 (DINOv2 FiLM guidance) built, wired, and VERIFIED but NOT trained.
+Last change: 2026-08-06 — E1 CENTERING added + pre-launch decisions settled (DEVLOG Step 20).
+The FiLM head is now fed `pooled − mean` (fixed per-arm mean over 300 training crops, registered
+buffer, config field `dino_feat_mean`); identity-at-init re-verified with real DINOv2 + real means
+(max diff 0.000e+00, both arms); both arms confirmed; no raw-feature arm (predicted null, saves
+~3 GPU-days); crop-size signal decay registered in advance as a candidate explanation if E1
+underperforms; per-arm self-chaining launch scripts created. STILL NOT TRAINED — nothing submitted.
+
+Prior (2026-08-05): E1 (DINOv2 FiLM guidance) built, wired, and VERIFIED but NOT trained.
 Two arms (lqDINO, renderDINO), frozen DINOv2 ViT-B/14, FiLM at bottleneck+decoder, zero-init identity.
 Offline DINO cache wired + fails loudly; weights verified genuinely loaded; input/alignment/pipeline
 verified with real images. Feature-separation analysis: pooled DINO feature is ~95% shared offset,

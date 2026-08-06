@@ -97,6 +97,14 @@ network_g:
   dino_hub_source: local       # offline: load from the cached repo dir, no internet
   dino_hub_dir: /home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub/hub/facebookresearch_dinov2_main
   dino_weights: /home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub/hub/checkpoints/dinov2_vitb14_pretrain.pth
+  # CENTERING: fixed per-arm mean pooled feature (300 training NOISY-LQ crops,
+  # crop sizes drawn in proportion to the progressive schedule), subtracted from
+  # the pooled vector before the FiLM head. Same treatment as the renderDINO arm
+  # so the two arms still differ ONLY in what image DINO looks at; the mean
+  # itself is arm-specific because the domains differ.
+  # Fixed mean, NOT BatchNorm -- batch drops to 2 at 256px.
+  # Regenerate with Deraining_Holo/compute_dino_feat_mean.py.
+  dino_feat_mean: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/Deraining_Holo/experiment_results/exp3_dino_film/dino_feat_mean_lqDINO.pt
   dino_stub: false             # true ONLY for the wiring sanity check
   film_hidden: 512
 

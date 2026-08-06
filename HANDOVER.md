@@ -1,19 +1,21 @@
-# HANDOVER — DINOv2 FiLM guidance (E1), as of 2026-08-05
+# HANDOVER — DINOv2 FiLM guidance (E1), as of 2026-08-06
 
 Read this + `CONTEXT.md` + `DEVLOG.md` at the start of a new session. This file
 covers the DINO/E1 work specifically; CONTEXT.md is the project-wide primer and
 DEVLOG.md is the append-only step log.
 
 ## One-line status
-E1 (DINOv2 FiLM guidance) is **built, wired, and verified but NOT trained**.
-Two arms are ready to launch. Several decisions are pending — see "Open decisions".
+E1 (DINOv2 FiLM guidance) is **built, wired, verified, centered, and NOT trained**.
+Both arms are ready to launch and the launch scripts now exist. The pre-launch
+decisions are settled (2026-08-06, see "Decisions taken"); **nothing launches
+until the user says so**.
 
 ---
 
 ## What E1 is
 Add semantic guidance from a **frozen DINOv2 ViT-B/14** to the verynoisy
 Restormer baseline (Exp 2), as FiLM `(1+γ)·F+β` at the bottleneck + 3 decoder
-stages, γ/β predicted by a small MLP from pooled DINO features. Zero-init final
+stages, γ/β predicted by a small MLP from **centered** pooled DINO features. Zero-init final
 projection ⇒ identical to baseline at init. Restormer trained from scratch; DINO
 is the only pretrained part. **One variable studied: what image DINO looks at.**
 
@@ -38,7 +40,10 @@ held identical.
 - render dataset: `basicsr/data/paired_image_uint16_render_dataset.py`
 - render model: `basicsr/models/image_clean_render_model.py`
 - configs: `Deraining_Holo/Options/Holo_DINOv2_{lqDINO,renderDINO}_Restormer.yml`
-- sanity check (identity at init): `Deraining_Holo/sanity_check_dino_film.py`
+- sanity check (identity at init, stub + real DINO + real means): `Deraining_Holo/sanity_check_dino_film.py`
+- centering vectors: `Deraining_Holo/compute_dino_feat_mean.py` ->
+  `Deraining_Holo/experiment_results/exp3_dino_film/dino_feat_mean_{lqDINO,renderDINO}.pt`
+- launch drivers (self-chaining, one per arm): `Deraining_Holo/train_holo_chain_{lqDINO,renderDINO}.sh`
 - weights-loaded verification: `Deraining_Holo/verify_dino_weights.py`
 - input debug dumps: `Deraining_Holo/debug_dino_inputs.py`
 - feature-separation analysis: `Deraining_Holo/analyze_dino_features.py`
@@ -64,6 +69,12 @@ xformers/timm NOT needed (DINO falls back to vanilla attention).
 
 ## Verification done (all before launch)
 1. **Identity at init**: FiLM-on == FiLM-off == baseline, bit-identical (max diff 0.0).
+   **Re-run 2026-08-06 after the centering change — PASSED.** The check now has a second
+   part using the REAL frozen DINOv2 + each arm's REAL mean vector read from its yml:
+   both arms `max|film_on − film_off| = 0.000e+00`, `max|film_model − baseline| = 0.000e+00`;
+   extractor output verified == `raw_pooled − feat_mean` (max residual 0.00e+00) and the
+   buffer byte-equal to the `.pt` the yml names. (Identity could not break — γ=β=0 whatever
+   the feature — but it was confirmed, not assumed.)
 2. **Alignment (arm A)**: render crop shares crop+flip RNG with the LQ — 200/200 marker
    trials identical + visual overlay. `debug/alignment_overlay.png`.
 3. **DINO pipeline**: resize/ImageNet-norm confirmed applied; arm B reuses Restormer's
@@ -83,20 +94,41 @@ xformers/timm NOT needed (DINO falls back to vanilla attention).
 
 ---
 
-## Open decisions (nothing launches until resolved)
-1. **Centering the FiLM input?** The pooled feature is 95%+ shared offset. Option: subtract
-   a per-arm precomputed training mean (register a buffer, subtract before the MLP; preserves
-   zero-init identity). It's a design change to E1 — needs a pre-registration note. Not applied.
-2. **Which arm(s) to run** — both, or start with renderDINO (stronger in the analysis)?
-3. **Single seed** confirmed (user: no multi-seed for now).
-4. **[SOURCE NEEDED]**: the "layers {1,4,8,12}" recipe citation — user's paper to fill in.
-5. **Test-time eval for arm A**: `test_holo.py` doesn't yet load/pass the render; needed at
-   eval time for the renderDINO arm.
+## Decisions taken 2026-08-06 (all implemented; full text in design.md "Amendments")
+1. **Centering: ADOPTED.** Fixed per-arm mean pooled feature over 300 training crops
+   (crop sizes drawn in proportion to the schedule's iters: 92/64/48/96 at 128/160/192/256,
+   train split only, seed 0), registered as a buffer in `DINOv2Extractor` and subtracted at
+   the end of `forward`. New config field `dino_feat_mean`, set in both ymls.
+   Fixed mean, **not** BatchNorm — batch drops to 2 at 256px and a two-sample mean is noise.
+   Measured: renderDINO ‖mean‖ 102.23 / ‖resid‖ 32.63 (offset = 90.0% of ‖feat‖²);
+   lqDINO ‖mean‖ 85.63 / ‖resid‖ 35.40 (84.9%). Buffer ⇒ travels with the checkpoint, so a
+   chained resume cannot silently use a different mean.
+2. **No raw-feature baseline arm.** Raw pooled features were measured object-blind
+   (render↔radar d ≈ 0.03, n.s.); paying ~3 GPU-days to confirm a predicted null is a bad
+   trade against the deadline. Written up as a measured design choice, not an ablation.
+   Stated limitation: E1 cannot attribute a gain to centering specifically.
+   Optional later row if GPU time frees up.
+3. **Both arms run.** lqDINO stays: it matches the published recipes, needs no render at
+   inference, and a flat lqDINO alongside a non-flat renderDINO is itself a result.
+4. **Identity at init re-verified after centering — PASSED** (see below).
+5. **Registered in advance:** crop-size decay of the DINO signal as a *candidate
+   explanation if E1 underperforms* (A4 in design.md). Schedule NOT changed.
+6. **Single seed** confirmed (user: no multi-seed for now).
+
+## Still open
+- **[SOURCE NEEDED]**: the "layers {1,4,8,12}" recipe citation — user's paper to fill in.
+- **Test-time eval for arm A**: `test_holo.py` doesn't yet load/pass the render; needed at
+  eval time for the renderDINO arm (not needed to launch, needed before results).
+- **Partition choice**: both chain scripts default to `a100` (CONTEXT.md's stated default);
+  the Exp 2 baseline ran on `v100`. Switch if a100 is congested and record which was used.
 
 ## Pre-registered E1 prediction (do not move it post hoc)
 Gain small (≤ ~0.3 dB masked PSNR, plausibly within noise / leaning null),
-renderDINO ≥ lqDINO if any effect; FiLM head likely needs centered features.
+renderDINO ≥ lqDINO if any effect; FiLM head fed centered features (now applied).
 Rationale: object signal in the pooled feature is weak and offset-buried.
+Note the two arms' d values measure **different things** — lqDINO's d is noise
+robustness inside the radar domain, renderDINO's is cross-domain correspondence —
+so they are not comparable scores and "+0.249 > +0.183" ranks nothing.
 
 ---
 
@@ -105,16 +137,28 @@ Rationale: object signal in the pooled feature is weak and offset-buried.
 PY=/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python
 export TORCH_HOME=/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub
 
-$PY Deraining_Holo/sanity_check_dino_film.py        # identity-at-init (offline, CPU)
+$PY Deraining_Holo/sanity_check_dino_film.py        # identity-at-init (offline, CPU, ~2 min)
 $PY Deraining_Holo/verify_dino_weights.py           # weights really loaded
 $PY Deraining_Holo/debug_dino_inputs.py             # dump input grids + bg numbers
-# launch (only when decisions above are settled) — build chain drivers first:
-#   sbatch Deraining_Holo/train_holo_chain_lqDINO.sh      (NOT YET CREATED)
-#   sbatch Deraining_Holo/train_holo_chain_renderDINO.sh  (NOT YET CREATED)
+
+# regenerate the centering vectors (only if the data/schedule/layers change):
+$PY Deraining_Holo/compute_dino_feat_mean.py \
+    --opt Deraining_Holo/Options/Holo_DINOv2_renderDINO_Restormer.yml \
+    --out Deraining_Holo/experiment_results/exp3_dino_film/dino_feat_mean_renderDINO.pt
+$PY Deraining_Holo/compute_dino_feat_mean.py \
+    --opt Deraining_Holo/Options/Holo_DINOv2_lqDINO_Restormer.yml \
+    --out Deraining_Holo/experiment_results/exp3_dino_film/dino_feat_mean_lqDINO.pt
+
+# LAUNCH — ONLY on the user's explicit go-ahead. Submit ONCE per arm; each job
+# queues its own successor and auto-resumes (23 h walltime, ~3 jobs for 300k).
+#   sbatch Deraining_Holo/train_holo_chain_lqDINO.sh
+#   sbatch Deraining_Holo/train_holo_chain_renderDINO.sh
 ```
-NOTE: launch scripts for the two arms do NOT exist yet — mirror
-`train_holo_chain_verynoisy.sh` (self-chaining resume driver), one per arm, with
-its own experiment dir + `Holo_chain_state_*` bookkeeping.
+The two chain drivers exist (created 2026-08-06, mirrored from
+`train_holo_chain_verynoisy.sh`), each with its own experiment dir and
+`experiments/Holo_chain_state_{lqDINO,renderDINO}/` bookkeeping, so the arms can
+run concurrently without touching each other or the Exp 2 baseline. Neither has
+ever been submitted — they are untested against the scheduler.
 
 ## Dataset (holographic_image_dataset), split seed 42
 Per object, aligned by filename across: `*_clean` (1e6 GT), `*_verynoisy` (1e7 LQ),

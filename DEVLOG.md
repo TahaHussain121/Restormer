@@ -508,3 +508,79 @@ New analysis from the per-image CSV:
 
 Note masked_metrics.py is CPU-only, so this ran on the login node -- no job needed.
 Artifacts archived to experiment_results/exp2_verynoisy/.
+
+## Step 20 — E1 centering + pre-launch decisions (2026-08-06)
+
+Pre-launch changes to E1 (DINOv2 FiLM guidance). Still NOT trained; nothing was
+submitted to the scheduler.
+
+**1. Centering the FiLM input (applied).** The FiLM head now receives
+`pooled − mean` instead of the raw pooled DINO vector.
+  - New arch kwarg / config field `dino_feat_mean` -> a .pt path. Loaded by
+    `load_dino_feat_mean()` (fails loudly on a missing file or width mismatch)
+    and registered as a BUFFER in `DINOv2Extractor`; subtracted at the end of
+    `forward`. Zeros when unset, so the state_dict keys are identical either way
+    and "no centering" is a genuine no-op. Being a buffer it is saved into the
+    checkpoint, so a chained resume cannot silently pick up a different mean.
+  - Vectors built by `Deraining_Holo/compute_dino_feat_mean.py` (new), seed 0,
+    300 crops drawn through the arm's OWN dataset class (exact training data
+    path: same random crop, same geometric augs, same loader/value range),
+    TRAIN SPLIT ONLY. Crop sizes drawn in proportion to the progressive
+    schedule's iteration counts -> 92/64/48/96 crops at 128/160/192/256, so the
+    mean matches the crop-size mix the run will actually see.
+  - Measured over those 300 crops:
+        renderDINO  ||mean|| 102.234   mean||residual|| 32.626   offset 90.0%
+        lqDINO      ||mean||  85.628   mean||residual|| 35.401   offset 84.9%
+    (Lower than the 95.6% quoted in the earlier full-frame single-size analysis
+    -- mixing crop sizes adds real variance and lowers the offset share. Not a
+    contradiction, a different sampling distribution.)
+  - FIXED mean, deliberately NOT BatchNorm: the schedule drops the batch to 2 at
+    256px and a two-sample mean is noise, not a mean.
+  - Justification is measured, not assumed: raw pooled features are object-blind
+    in the corrected render<->radar test (d ~ 0.03, n.s. at 128; null at 256);
+    centered they are not (d = +0.25/+8.6 sigma at 128, +0.17/+6.0 sigma at 256).
+  - .pt files committed under experiment_results/exp3_dino_film/ (14 KB each,
+    with full provenance metadata) -- the gitignore exception covers them.
+
+**2. Identity at init RE-VERIFIED after the change -- PASSED.**
+`sanity_check_dino_film.py` gained a second part that builds each arm from its
+ACTUAL yml with the REAL frozen DINOv2 and the REAL mean vector:
+        lqDINO      max|film_on - film_off| = 0.000e+00
+                    max|film_model - baseline| = 0.000e+00
+        renderDINO  max|film_on - film_off| = 0.000e+00
+                    max|film_model - baseline| = 0.000e+00
+plus: extractor output == raw_pooled - feat_mean (max residual 0.00e+00), and
+the buffer is byte-equal to the .pt the yml names. Identity could not break by
+construction (gamma=beta=0 whatever the feature) -- confirmed rather than assumed.
+
+**3. No raw-feature baseline arm.** Deliberate: ~3 GPU-days to confirm an
+already-measured null. Written up as "raw pooled features were measured
+object-blind (d ~ 0.03, n.s.); centering was adopted before training rather than
+ablated". Stated limitation: E1 cannot attribute a gain to centering
+specifically. Optional later row if GPU time frees up.
+
+**4. Both arms run.** lqDINO kept -- matches the published recipes, needs no
+render at inference, and flat-lqDINO vs non-flat-renderDINO would itself be a
+result.
+
+**5. Registered in the pre-registration BEFORE training** (design.md
+"Amendments made before training"):
+  - the DINO signal weakens with crop size in both arms (renderDINO +0.249@128
+    -> +0.167@256; lqDINO +0.183@128 -> null@256), and the schedule's last 96k
+    iterations -- the finest-reconstruction phase whose weights are kept -- run
+    at 256. Recorded as a NAMED CANDIDATE EXPLANATION to be invoked only if E1
+    underperforms. Schedule deliberately NOT changed.
+  - the two arms' d values measure different things (lqDINO = noise robustness
+    within the radar domain; renderDINO = cross-domain correspondence) and are
+    not comparable scores.
+
+**6. Launch drivers created** (did not exist before):
+`train_holo_chain_{lqDINO,renderDINO}.sh`, mirrored from the verynoisy chain
+driver, each with its own experiment dir and Holo_chain_state_* bookkeeping so
+the arms can run concurrently. Partition defaults to a100 (CONTEXT.md's stated
+default; the Exp 2 baseline ran v100). NEITHER HAS EVER BEEN SUBMITTED -- they
+are untested against the scheduler.
+
+Still open: the [SOURCE NEEDED] layer-recipe citation, and `test_holo.py` cannot
+yet load/pass the render for arm-A test-time eval (needed before results, not
+before launch).
