@@ -169,3 +169,48 @@ consistent across both arms so they cancel.
    on a node with internet, then set `dino_hub_source: local`, `dino_hub_dir`,
    and `dino_weights` in the config. Do one real forward pass to confirm the
    feature shape [B, 3072] before launching the full run.
+
+---
+
+## Feature-separation analysis (pre-E1, written 2026-08-05, before training)
+
+Question: is the pooled DINO feature the FiLM head consumes actually
+object-discriminative, or a thin residual on a large shared offset?
+Script: `Deraining_Holo/analyze_dino_features.py` (frozen DINOv2, verified weights).
+
+**Item 1 — 3-probe pairwise cosine (renders), raw vs centered**
+
+| pair | raw | centered |
+|---|---|---|
+| object_A vs object_B | +0.935 | **-0.237** |
+| object_A vs empty | +0.881 | -0.161 |
+| object_B vs empty | +0.901 | -0.075 |
+
+Raw ~0.9 for everything; after subtracting the training-set mean feature it
+collapses, and the two different objects become the *most* dissimilar pair. The
+raw similarity was almost entirely a shared offset.
+
+**Item 2/3 — discrimination d = sim(A, A_noisy) - sim(A, B), N=100, mean±std**
+(arm A A_noisy = render+N(0,0.1) synthetic; arm B A_noisy = real clean/noisy pair)
+
+| arm @ crop | raw d | centered d | centered significance |
+|---|---|---|---|
+| A (render) @128 | -0.261 ± 0.068 | **+0.211 ± 0.383** | +5.5σ |
+| B (lq) @128 | -0.156 ± 0.126 | **+0.183 ± 0.495** | +3.7σ |
+| A (render) @256 | -0.252 ± 0.031 | **+0.182 ± 0.354** | +5.1σ |
+| B (lq) @256 | -0.312 ± 0.195 | -0.123 ± 0.762 | -1.6σ (n.s.) |
+
+**Reading (not softened):** In *raw* pooled space the feature is object-blind —
+d is negative everywhere, i.e. a different object is *more* similar to the anchor
+than the anchor's own noised version, because a large shared offset dominates.
+*Centering removes that offset and a real but WEAK object signal appears*: mean d
+flips positive and is aggregate-significant for 3 of 4 configs (renderDINO both
+sizes, lqDINO@128), but the per-pair std is ~2× the mean, so it is reliable only
+in aggregate, not per image. lqDINO@256 stays null. So the signal exists and lives
+entirely in the residual; the raw vector buries it.
+
+**Pre-registered E1 prediction (follows from the above):** because the object
+signal is weak and offset-buried, E1's masked-PSNR gain over the Exp 2 baseline
+will be small (predict ≤ ~0.3 dB, plausibly within noise / leaning null), with
+renderDINO ≥ lqDINO if any effect appears; the FiLM head will likely need
+centered (offset-removed) input features to extract even that.
