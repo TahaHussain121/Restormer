@@ -139,12 +139,16 @@ Dataset note: TWO datasets are now in play.
                                 no test split. train_/val_verynoisy built as symlinks from
                                 splits/*.txt (see DEVLOG Step 19).
 
-Last change: 2026-07-21 — Verynoisy baseline complete (DEVLOG Step 19). Switched configs to
-holographic_image_dataset with clean GT + verynoisy LQ, disabled mixup, renamed the experiment to
-Holo_Baseline_Restormer_verynoisy so the previous noisy run could not be resumed from or overwritten.
-Trained the full 300k in 16h47m across 3 chained jobs: peak val 22.446 dB @ 292k, no overfitting.
-Plot scripts generalized to --exp; added plot_compare.py. Open issue: no held-out test set exists for
-holographic_image_dataset, so the verynoisy run has no test number yet.
+Last change: 2026-08-05 — E1 (DINOv2 FiLM guidance) built, wired, and VERIFIED but NOT trained.
+Two arms (lqDINO, renderDINO), frozen DINOv2 ViT-B/14, FiLM at bottleneck+decoder, zero-init identity.
+Offline DINO cache wired + fails loudly; weights verified genuinely loaded; input/alignment/pipeline
+verified with real images. Feature-separation analysis: pooled DINO feature is ~95% shared offset,
+weak object signal after centering. Pending: centering decision, which arm(s), test-time render eval.
+** For the full picture read HANDOVER.md at repo root ** (this file is the project primer; HANDOVER.md
+is the E1/DINO handover; DEVLOG.md is the step log up to Step 19c).
+
+Prior (2026-07-21): Verynoisy baseline complete (DEVLOG Step 19) — full 300k, peak val 22.446 dB @ 292k;
+test 22.405 dB full / 18.313 dB masked; over-smoothing (HF ratio 0.216) is the weakness E1 targets.
 
 ## Known Issues (must fix before smoke test)
 1. ~~uint16 → uint8 truncation~~ FIXED via imfrombytes_uint16 + Dataset_PairedImage_uint16

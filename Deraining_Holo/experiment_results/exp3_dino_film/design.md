@@ -214,3 +214,33 @@ signal is weak and offset-buried, E1's masked-PSNR gain over the Exp 2 baseline
 will be small (predict ≤ ~0.3 dB, plausibly within noise / leaning null), with
 renderDINO ≥ lqDINO if any effect appears; the FiLM head will likely need
 centered (offset-removed) input features to extract even that.
+
+### CORRECTED render↔radar test (2026-08-05, supersedes the synthetic-noise arm-A row)
+
+The arm-A discrimination above used render + synthetic Gaussian noise for
+"same object under noise" -- wrong. The real question is whether DINO links a
+render to the SAME object's actual 1e7 radar heatmap more than to a DIFFERENT
+object's. No synthetic noise; the "other view" is the real radar image.
+Script: `Deraining_Holo/render_radar_similarity.py`.
+
+d = sim(render_i, radar_i) − sim(render_i, radar_j), N=100, mean±std:
+
+| crop | raw d | centered d | centered same / diff | centered σ |
+|---|---|---|---|---|
+| 128 | +0.027 ± 0.145 (SE .015) | **+0.249 ± 0.295 (SE .029)** | +0.272 / +0.023 | +8.6σ |
+| 256 | −0.008 ± 0.270 (SE .027) | **+0.167 ± 0.280 (SE .028)** | +0.159 / −0.008 | +6.0σ |
+
+**Reading (not softened):** raw cross-modal is object-blind (d≈0.03 at 128, null
+at 256 — the modality offset dominates). *Centered*, a real and clearly
+significant object-linking signal appears: a render's residual points ~0.27
+cosine toward the SAME object's radar residual vs ~0.02 for a different object
+(d=+0.25, +8.6σ at 128; +0.17, +6σ at 256). So the render DOES carry object
+identity that transfers to the radar domain — but the absolute alignment is
+MODEST (0.27) and exists ONLY in the residual; the raw pooled feature buries it.
+
+**Updated E1 implication:** renderDINO has a genuine (if modest) object signal to
+work with, but essentially all of it is in the centered residual — so centering
+the FiLM input is now well-justified, not optional. Without centering, raw
+render features are near object-blind and renderDINO would likely come back
+near-null. Prediction stays: small gain, renderDINO ≥ lqDINO, conditional on
+centered features.
