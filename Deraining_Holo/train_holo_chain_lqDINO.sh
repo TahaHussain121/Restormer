@@ -1,7 +1,7 @@
 #!/bin/bash -l
 #
-#SBATCH --gres=gpu:a100:1
-#SBATCH --partition=a100
+#SBATCH --gres=gpu:v100:1
+#SBATCH --partition=v100
 #SBATCH --time=23:00:00
 #SBATCH --export=NONE
 #SBATCH --job-name=holo_lqDINO
@@ -16,9 +16,9 @@
 # experiment name + chain-state dir means the Exp 2 baseline and the other DINO
 # arm are never touched or resumed from -- the two arms can run concurrently.
 #
-# Partition set to a100 (CONTEXT.md: default going forward). The frozen ViT-B
-# forward per step makes this heavier than the Exp 2 baseline; switch to v100 if
-# a100 is congested, and record which was used.
+# Partition: v100 (user's call, 2026-08-06). The renderDINO arm has the a100.
+# The Exp 2 baseline also ran on v100, so per-step cost is comparable to it plus
+# the frozen ViT-B forward. Expect MORE chained jobs than the a100 arm.
 #
 # Submit ONCE:
 #     sbatch Deraining_Holo/train_holo_chain_lqDINO.sh
@@ -34,7 +34,10 @@ DONE_FILE=$CHAIN_DIR/TRAINING_DONE
 ABORT_FILE=$CHAIN_DIR/CHAIN_ABORTED
 COUNT_FILE=$CHAIN_DIR/CHAIN_COUNT
 FINAL_CKPT=$EXP_DIR/models/net_g_300000.pth
-MAX_CHAIN=5
+MAX_CHAIN=8   # Exp 2 (no DINO) needed ~3 jobs of 23h. The frozen ViT-B forward per
+              # step makes this slower, and the v100 arm slower still, so the cap is
+              # raised from 5. Costs nothing: TRAINING_DONE stops the chain as soon
+              # as net_g_300000.pth appears, and the crash guard still aborts early.
 MIN_RUNTIME=1800   # seconds. Training exiting faster than this, without producing
                    # the 300k checkpoint, is treated as a crash (a walltime kill
                    # runs ~23h, so this can never falsely trigger on a healthy run).
