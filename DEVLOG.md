@@ -631,3 +631,76 @@ to 0.01.
 WATCH: tail experiments/Holo_chain_state_{renderDINO,lqDINO}/slurm_chain_<job>.out
 and experiments/Holo_DINOv2_{arm}_verynoisy/*.log. A crash inside 1800 s writes
 CHAIN_ABORTED and cancels the successor rather than burning the chain.
+
+## Step 22 — E1 CANCELLED: the FiLM head runs away (2026-08-07)
+
+Both arms launched in Step 21 were cancelled by hand ~13:35 CEST after 14 h
+(lqDINO, 73k iters) and 5 h 41 (renderDINO, 44k iters). They were NOT crashing --
+they were training a degenerate model.
+
+  scancel 1771126 1771018   (queued successors, killed FIRST so the afterany
+                             dependency could not launch a replacement)
+  scancel 1771016 1771017   (running jobs)
+
+SYMPTOM. Training loss tracked the Exp 2 baseline almost exactly (41k: renderDINO
+5.40e-2, lqDINO 6.11e-2, baseline 5.43e-2) while validation was catastrophic:
+
+  iter     renderDINO   lqDINO   Exp 2 baseline
+   4000       7.80 dB   3.22 dB      19.62 dB
+  44000       4.73 dB   4.96 dB      ~20.5 dB
+  72000            --   5.61 dB      ~20.7 dB
+
+The noisy input alone is 12.35 dB, so both arms were far worse than doing
+nothing, and flat rather than climbing.
+
+CAUSE (measured from the checkpoints, not inferred). |gamma| and |beta| grow
+monotonically from the start; the model is already broken by iter 2000:
+
+  lqDINO   iter   |gamma|max  |beta|max  film W_last norm  val PSNR
+            2000       30.72       7.24             9.54    -74.3
+           10000      125.44      33.94            17.23   -138.7
+           40000      255.68      64.02            23.08   -167.1
+           72000      325.50      88.37            24.94   -172.4
+
+(1+gamma)*F+beta with gamma ~325 is a ~326x feature amplification; output range
+at 256px reached +/-2.4e9. renderDINO is the same failure, milder: gamma 4.6-7.3,
+output range +/-700.
+
+WHY TRAIN LOOKED FINE. Stage 1 trains at 128px; validation runs at native 256.
+The network co-adapted to a knife-edge solution that only survives its training
+crop size. Measured on lqDINO@72k, one val image:
+    128 crop, FiLM ON  -> 20.55 dB   (healthy)
+    256 full, FiLM ON  -> -172.4 dB  (garbage)
+    256 full, FiLM OFF ->   -1.4 dB  (backbone alone is also distorted -- it has
+                                      co-adapted to compensate for huge gamma)
+
+WHY NOTHING BOUNDED IT. `use_grad_clip: true` clips to 0.01 over all 28.5M
+params, but AdamW normalises per-parameter, so a uniformly rescaled gradient
+yields nearly the same update -- the clip does essentially nothing to constrain
+the FiLM head. Nothing in the design bounds gamma. This is a design flaw in the
+FiLM block, independent of which image DINO looks at (both arms show it).
+
+ON THE CENTERING CHANGE (Step 20). Probably not the cause, and deliberately not
+claimed as ruled out. Centering SHRINKS the FiLM input (norm ~30 residual vs
+~110 raw), which would if anything reduce gamma for the same weights; and both
+arms are centered yet differ ~70x in gamma. The mechanism points at unbounded
+gamma under Adam. Confirming this would need a training run, which has not been
+done.
+
+VERIFICATION GAP (own it). Step 20/21 checks covered identity at t=0 and a single
+train step. NOTHING tested stability OVER training. A few hundred iterations
+logging |gamma|max would have caught this in minutes and saved ~20 GPU-hours.
+Any future launch gate must include a short run that watches the modulation
+magnitude, not just an init-time identity check.
+
+STATE ON DISK. Kept for now, deliberately: experiments/Holo_DINOv2_lqDINO_verynoisy
+(24 G) and .../renderDINO_verynoisy (15 G), plus full logs. CHAIN_ABORTED +
+WHY_ABORTED.txt written into both chain-state dirs so a resubmit cannot silently
+resume a broken run. Prune both once the fix is settled and the evidence is
+written up.
+
+NEXT (one change, not yet implemented): bound the FiLM modulation -- gamma through
+a tanh (and/or a separate smaller LR / stronger weight decay for the FiLM head) --
+add a |gamma|max diagnostic to the training log, verify over a few hundred iters,
+then relaunch as a FRESH experiment dir. The Step 20 pre-registration stands
+otherwise; this is a stability fix, not a change to what is being studied.

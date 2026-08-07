@@ -139,7 +139,9 @@ Dataset note: TWO datasets are now in play.
                                 no test split. train_/val_verynoisy built as symlinks from
                                 splits/*.txt (see DEVLOG Step 19).
 
-Last change: 2026-08-06 — E1 LAUNCHED, both arms (DEVLOG Step 21): job 1771016 renderDINO on a100,
+Last change: 2026-08-07 — E1 CANCELLED, both arms broken (DEVLOG Step 22): FiLM runaway, |gamma|->325,
+val PSNR 3-8 dB vs baseline 19.6 dB, broken by iter 2000. Needs a FiLM stability fix before relaunch.
+Prior (2026-08-06): E1 LAUNCHED, both arms (DEVLOG Step 21): job 1771016 renderDINO on a100,
 job 1771017 lqDINO on v100, self-chaining to 300k. Earlier the same day: E1 CENTERING added + pre-launch decisions settled (DEVLOG Step 20).
 The FiLM head is now fed `pooled − mean` (fixed per-arm mean over 300 training crops, registered
 buffer, config field `dino_feat_mean`); identity-at-init re-verified with real DINOv2 + real means
