@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python /scratch/claude-214675/-home-woody-iwnt-iwnt174h-thesis-dino-code-Restormer/be8044d7-5187-45e6-a598-fb3ec623f810/scratchpad/gvar.py)"
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python /scratch/claude-214675/-home-woody-iwnt-iwnt174h-thesis-dino-code-Restormer/be8044d7-5187-45e6-a598-fb3ec623f810/scratchpad/gvar.py)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python Deraining_Holo/make_gate_configs.py)"
     ]
   }
 }

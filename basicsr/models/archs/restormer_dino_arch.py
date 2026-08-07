@@ -217,15 +217,28 @@ class FiLMHead(nn.Module):
     decoupled weight decay contributes lr*wd = 3e-8 per step.
 
     tanh(0) = 0, so the zero-init identity at t=0 is preserved exactly.
+
+    RAW SCALE (added 2026-08-07 after the gate failure, DEVLOG Step 24). Bounding
+    alone was not enough: |gamma| hit the 0.5 rail within ~400 iterations and
+    stayed pinned, and once tanh saturates its gradient vanishes, so gamma froze
+    into a near-constant mask (film_g_std decayed 0.073 -> 0.011). `raw_scale`
+    multiplies the pre-tanh activation, so the modulation moves ~raw_scale times
+    slower per optimizer step and needs ~1/raw_scale times longer to reach the
+    rail. It is an effective learning rate ON THE MODULATION, implemented here
+    rather than as an optimizer param group because basicsr's
+    CosineAnnealingRestartCyclicLR uses an ABSOLUTE, group-shared eta_min -- a
+    second group at lr 1e-5 would be annealed UPWARD to 3e-4, which is worse
+    than doing nothing.
     """
 
     def __init__(self, in_dim, channels, hidden=512,
-                 gamma_scale=0.5, beta_scale=0.5):
+                 gamma_scale=0.5, beta_scale=0.5, raw_scale=1.0):
         super().__init__()
         self.channels = list(channels)          # e.g. [384,192,96,96]
         self.total = sum(self.channels)
         self.gamma_scale = float(gamma_scale)
         self.beta_scale = float(beta_scale)
+        self.raw_scale = float(raw_scale)
         self.mlp = nn.Sequential(
             nn.Linear(in_dim, hidden),
             nn.GELU(),
@@ -236,7 +249,7 @@ class FiLMHead(nn.Module):
         nn.init.zeros_(self.mlp[-1].bias)
 
     def forward(self, feat):
-        out = self.mlp(feat)                    # [B, 2*total]
+        out = self.raw_scale * self.mlp(feat)   # [B, 2*total]
         gamma_all = self.gamma_scale * torch.tanh(out[:, :self.total])
         beta_all = self.beta_scale * torch.tanh(out[:, self.total:])
         gammas = torch.split(gamma_all, self.channels, dim=1)
@@ -266,6 +279,7 @@ class RestormerDINO(Restormer):
                  film_hidden=512,
                  film_gamma_scale=0.5,     # |gamma| <= this (tanh-bounded)
                  film_beta_scale=0.5,      # |beta|  <= this
+                 film_raw_scale=1.0,       # effective LR on the modulation
                  **restormer_kwargs):
         super().__init__(**restormer_kwargs)   # builds backbone first (identical init)
 
@@ -288,7 +302,16 @@ class RestormerDINO(Restormer):
 
         self.film = FiLMHead(self.dino.feat_dim, self.film_channels,
                              hidden=film_hidden, gamma_scale=film_gamma_scale,
-                             beta_scale=film_beta_scale)
+                             beta_scale=film_beta_scale, raw_scale=film_raw_scale)
+        # WARMUP/RAMP (DEVLOG Step 24). Multiplies gamma/beta; the training loop
+        # sets it each step via set_film_ramp(). 0 => FiLM contributes nothing
+        # AND receives no gradient, so the head stays at its zero init while the
+        # backbone trains. The Step 22/24 failures were a RACE: at iter 200 the
+        # backbone is still random, and the fastest loss reduction available to a
+        # random FiLM head is the scale degeneracy, so it went straight there and
+        # saturated. Holding FiLM off until the backbone is established removes
+        # the race rather than capping its damage.
+        self.film_ramp = 1.0
         # Populated each forward so the training loop can LOG the modulation
         # magnitude. The first E1 attempt failed invisibly for 73k iters because
         # nothing ever looked at gamma. Cheap detached scalars, no graph held.
@@ -300,14 +323,37 @@ class RestormerDINO(Restormer):
             self.dino.train(False)   # stay frozen/eval
         return self
 
+    def set_film_ramp(self, w):
+        """Set the FiLM warmup/ramp factor (0 = off, 1 = full). Called by the
+        training loop each step; persists into validation, so a validation run
+        during warmup is exactly the baseline model."""
+        self.film_ramp = float(w)
+
+    @staticmethod
+    def film_ramp_at(it, warmup_iters, ramp_iters):
+        """0 for it < warmup, then linear 0->1 over ramp_iters, then 1."""
+        if warmup_iters <= 0 and ramp_iters <= 0:
+            return 1.0
+        if it < warmup_iters:
+            return 0.0
+        if ramp_iters <= 0:
+            return 1.0
+        return min(1.0, (it - warmup_iters) / float(ramp_iters))
+
     def forward(self, inp_img, dino_img=None, apply_film=True):
         # --- semantic guidance ---
         # dino_img is the image DINO looks at. If None, DINO sees the same LQ
         # input as Restormer (Variant B). If provided (e.g. the black-bg render),
         # DINO sees that instead (Variant A). Restormer always processes inp_img.
+        # film_ramp == 0 short-circuits the whole block: no DINO forward, no FiLM
+        # gradient, exact baseline behaviour during warmup.
+        apply_film = apply_film and self.film_ramp != 0.0
         if apply_film:
             feat = self.dino(inp_img if dino_img is None else dino_img)
             gammas, betas = self.film(feat)
+            if self.film_ramp != 1.0:
+                gammas = [g * self.film_ramp for g in gammas]
+                betas = [b * self.film_ramp for b in betas]
             with torch.no_grad():
                 g = torch.cat(gammas, 1)
                 b = torch.cat(betas, 1)
@@ -318,7 +364,10 @@ class RestormerDINO(Restormer):
                     # is. Near 0 => gamma is a constant rescale, not guidance.
                     'film_g_std': (g.std(0).mean().detach() if g.shape[0] > 1
                                    else torch.zeros((), device=g.device)),
+                    'film_ramp': torch.tensor(float(self.film_ramp)),
                 }
+        else:
+            self.last_film_stats = {'film_ramp': torch.tensor(float(self.film_ramp))}
 
         # --- baseline Restormer forward, with FiLM at 4 points ---
         inp_enc_level1 = self.patch_embed(inp_img)

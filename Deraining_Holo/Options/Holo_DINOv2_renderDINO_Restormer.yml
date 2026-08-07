@@ -121,6 +121,16 @@ network_g:
   # 1.0 lets gamma=-1 zero out channels entirely.
   film_gamma_scale: 0.5
   film_beta_scale: 0.5
+  # RAW SCALE (2026-08-07, DEVLOG Step 24). Multiplies the pre-tanh activation,
+  # so the modulation moves ~raw_scale times slower per step and takes
+  # ~1/raw_scale longer to reach the rail. Bounding alone was not enough: |gamma|
+  # pinned at 0.5 within ~400 iters and, once tanh saturates, its gradient
+  # vanishes and gamma froze into a near-constant mask (film_g_std 0.073->0.011).
+  # This is an effective LR on the modulation. It lives here rather than as an
+  # optimizer param group because basicsr's CosineAnnealingRestartCyclicLR uses
+  # an ABSOLUTE group-shared eta_min -- a second group at 1e-5 would be annealed
+  # UPWARD to 3e-4, which is worse than doing nothing.
+  film_raw_scale: 0.01
 
 
 # path
@@ -136,6 +146,17 @@ train:
   total_iter: 300000
   warmup_iter: -1 # no warm up
   use_grad_clip: true
+
+  # FiLM WARMUP/RAMP (2026-08-07, DEVLOG Step 24). gamma/beta are forced to 0 for
+  # the first film_warmup_iters (the arch skips the DINO/FiLM block entirely, so
+  # the head gets no gradient and stays at its zero init), then ramp linearly to
+  # full over film_ramp_iters. The backbone reaches ~19.6 dB by 4k on its own, so
+  # by 10k FiLM is switching on against an established backbone instead of a
+  # random one. This removes the race that caused the Step 22 and Step 24
+  # failures rather than capping its damage. Validation during warmup is exactly
+  # the baseline model -- a free built-in control.
+  film_warmup_iters: 5000
+  film_ramp_iters: 5000
 
   # Original Restormer deraining schedule: two cycles.
   # 1st cycle: fixed 3e-4 LR for 92k iters (eta_min == initial lr => constant).

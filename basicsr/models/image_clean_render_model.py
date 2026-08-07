@@ -27,6 +27,7 @@ class ImageCleanModelRender(ImageCleanModelDINO):
         self.dino_img = data['dino'].to(self.device) if 'dino' in data else None
 
     def optimize_parameters(self, current_iter):
+        self._set_film_ramp(current_iter)     # FiLM warmup/ramp, see parent
         self.optimizer_g.zero_grad()
         preds = self.net_g(self.lq, dino_img=self.dino_img)
         if not isinstance(preds, list):

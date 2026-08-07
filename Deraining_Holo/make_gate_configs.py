@@ -19,26 +19,34 @@ HDR = """# =====================================================================
 # GENERATED from Holo_DINOv2_{arm}_Restormer.yml -- do not hand-edit.
 # Regenerate: python Deraining_Holo/make_gate_configs.py
 #
-# STABILITY GATE (DEVLOG Step 22). A 4000-iteration run whose ONLY purpose is to
-# answer "is this run healthy?" before committing ~3 GPU-days to it. Identical to
-# the full config except: total_iter 4000, val every 1000, print every 200, and
+# STABILITY GATE (DEVLOG Steps 22/24). A 16000-iteration run whose ONLY purpose
+# is to answer "is this run healthy?" before committing ~3 GPU-days. Identical to
+# the full config except: total_iter 16000, val every 2000, print every 200, and
 # its own experiment name so it never touches the real run's directory.
 #
-# PASS CRITERION: val PSNR at iter 4000 >= 18 dB.
-# The Exp 2 baseline reached 19.62 dB at its first validation; the two FAILED
-# unbounded-FiLM arms were at 3.22 and 7.80 dB at the same point. This gate would
-# have caught that failure in ~30 minutes instead of ~20 GPU-hours.
-# Also watch film_g_absmax (must stay <= film_gamma_scale) and film_g_std
-# (near 0 => gamma is a constant rescale, not input-dependent guidance).
+# Length is set by the FiLM schedule, not by taste: warmup 5k + ramp 5k means
+# FiLM is only fully on from iter 10k, so a short gate would test nothing. 16k
+# gives ~6k iterations of fully-on FiLM.
+#
+# TWO PASS CRITERIA:
+#   1. final val PSNR >= 18 dB.
+#   2. final val PSNR >= (best val during warmup) - 1 dB.
+# (2) is the important one and is free: during warmup film_ramp = 0, so the
+# validations at 2k/4k ARE the plain baseline. The gate therefore contains its
+# own control, and criterion (2) asks exactly "does switching FiLM on make the
+# model worse?" -- the question both previous attempts failed.
+# Also watch film_g_absmax (must stay well BELOW film_gamma_scale -- pinned at
+# the rail is the Step 24 failure) and film_g_std (near 0 => gamma is a constant
+# rescale, not input-dependent guidance).
 # =============================================================================
 """
 
 # (find, replace) applied once each. Everything else is inherited verbatim.
 OVERRIDES = [
-    ('  total_iter: 300000', '  total_iter: 4000'),
-    ('  val_freq: !!float 4e3', '  val_freq: !!float 1e3'),
+    ('  total_iter: 300000', '  total_iter: 16000'),
+    ('  val_freq: !!float 4e3', '  val_freq: !!float 2e3'),
     ('  print_freq: 1000', '  print_freq: 200'),
-    ('  save_checkpoint_freq: !!float 2e3', '  save_checkpoint_freq: !!float 4e3'),
+    ('  save_checkpoint_freq: !!float 2e3', '  save_checkpoint_freq: !!float 8e3'),
 ]
 
 

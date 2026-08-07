@@ -808,3 +808,61 @@ framing of these two failures.
 
 No GPU is running. Nothing was chained. Cost of this iteration: ~35 min x 2,
 which is the point of the gate.
+
+## Step 25 — Attempt 3: slow + late FiLM (2026-08-07)
+
+User's call after Step 24: keep the pre-registered design (from scratch, 300k)
+and fix the RACE rather than redesign. Two mechanisms, one idea -- make FiLM a
+slow, late, bounded correction instead of a fast, early, saturating one.
+
+**1. WARMUP + RAMP (`train.film_warmup_iters: 5000`, `film_ramp_iters: 5000`).**
+gamma/beta are multiplied by a ramp factor: 0 for the first 5k iters, linear
+0->1 over the next 5k, full from 10k. At ramp 0 the arch SKIPS the DINO/FiLM
+block entirely, so the head receives no gradient and stays at its zero init
+while the backbone trains. The baseline reaches ~19.6 dB by 4k on its own, so
+FiLM now switches on against an established backbone rather than a random one.
+That is the actual cause of both previous failures: with a random backbone the
+fastest loss reduction available to a random FiLM head is FiLM's scale
+degeneracy, so it went straight there and saturated.
+
+Free side effect, deliberately exploited: because ramp=0 persists into
+validation, the gate's early validations ARE the plain baseline. Every gate now
+carries its own control.
+
+**2. RAW SCALE (`network_g.film_raw_scale: 0.01`).** Multiplies the pre-tanh
+activation, so the modulation moves ~100x slower per optimizer step and needs
+~100x longer to reach the tanh rail. This is an effective learning rate ON THE
+MODULATION.
+
+Why implemented in the arch and NOT as an optimizer param group: basicsr's
+CosineAnnealingRestartCyclicLR computes
+`lr = eta_min + w*0.5*(base_lr - eta_min)*(1+cos(...))` with an ABSOLUTE,
+group-shared eta_min. Our period-1 eta_min is 3e-4, so a second group with
+base_lr 1e-5 would be annealed UPWARD from 1e-5 to 3e-4 across the first 92k
+iters -- the opposite of the intent. A separate optimizer kept out of
+self.optimizers would dodge the scheduler but would not be saved in the resume
+state, so its Adam moments would reset on every chained job. The arch-side scale
+has neither problem.
+
+The 0.5 tanh bound from Step 23 stays as the hard safety cap.
+
+**GATE EXTENDED to 16000 iters** (was 4000) with val every 2000: warmup 5k +
+ramp 5k means FiLM is only fully on from 10k, so the old 4k gate would have
+tested nothing. 16k gives ~6k iterations of fully-on FiLM. ~2 h a100 / ~3 h v100.
+
+New PASS criteria (both required):
+  1. final val PSNR >= 18 dB
+  2. final val PSNR >= (best warmup val) - 1 dB
+(2) is the one that matters and asks exactly the question both previous attempts
+failed: does switching FiLM on make the model WORSE than the baseline it was
+already achieving?
+
+VERIFIED (CPU, both arms, before GPU time):
+  - ramp schedule: 0 at iter 1/4999, 0.5 at 7500, 1.0 from 10000.
+  - during warmup: film_ramp=0 and ZERO FiLM parameters receive gradient.
+  - during warmup the forward is BIT-IDENTICAL to apply_film=False
+    (max diff 0.000e+00) -- warmup really is the baseline, not an approximation.
+  - after ramp: film_ramp=1.0, gamma logged and within bound.
+  - sanity_check_dino_film.py still all-PASS (identity at init unchanged).
+
+Gates submitted: jobs to follow. Nothing chains to 300k until both pass.
