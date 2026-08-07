@@ -30,7 +30,7 @@
 # and augmented identically to the LQ (Dataset_PairedImage_uint16_Render passes
 # it as 'dino'; ImageCleanModelRender forwards it as dino_img). Restormer still
 # processes the noisy LQ. The render is the ONLY difference vs Variant B.
-name: Holo_DINOv2_renderDINO_verynoisy
+name: Holo_DINOv2_renderDINO_verynoisy_v2
 model_type: ImageCleanModelRender
 scale: 1
 num_gpu: 1  # set num_gpu: 0 for cpu mode
@@ -111,6 +111,16 @@ network_g:
   dino_feat_mean: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/Deraining_Holo/experiment_results/exp3_dino_film/dino_feat_mean_renderDINO.pt
   dino_stub: false             # true ONLY for the wiring sanity check
   film_hidden: 512
+  # BOUNDED MODULATION (2026-08-07, DEVLOG Step 22). gamma/beta are tanh-squashed
+  # and scaled, so (1+gamma) is confined to [0.5, 1.5]. The first E1 attempt left
+  # them unbounded and |gamma| ran to 325: FiLM's scale degeneracy is a flat
+  # direction in the loss, AdamW walks it outward at ~lr per step, grad-clip is
+  # nearly a no-op under Adam, and decoupled wd contributes 3e-8/step. tanh(0)=0
+  # so the zero-init identity is unchanged. 0.5 is a judgement call, not a
+  # measured optimum: 0.1 would be so weak the result is an uninterpretable null,
+  # 1.0 lets gamma=-1 zero out channels entirely.
+  film_gamma_scale: 0.5
+  film_beta_scale: 0.5
 
 
 # path
@@ -177,7 +187,7 @@ logger:
   print_freq: 1000
   save_checkpoint_freq: !!float 2e3
   use_tb_logger: true
-  tb_logger_dir: tb_logger/Holo_DINOv2_renderDINO_verynoisy
+  tb_logger_dir: tb_logger/Holo_DINOv2_renderDINO_verynoisy_v2
   wandb:
     project: ~
     resume_id: ~

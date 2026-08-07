@@ -198,12 +198,34 @@ class FiLMHead(nn.Module):
     """MLP: pooled DINO vector -> per-channel (gamma, beta) for each stage.
 
     Final projection is zero-initialised, so gamma=beta=0 at init (identity).
+
+    BOUNDED MODULATION (added 2026-08-07 after the E1 runaway, DEVLOG Step 22).
+    gamma and beta are squashed through tanh and scaled:
+
+        gamma = gamma_scale * tanh(raw)   ->  (1+gamma) in [1-s, 1+s]
+        beta  = beta_scale  * tanh(raw)
+
+    Why: `(1+gamma)*F + beta` has a SCALE DEGENERACY -- rescaling a feature map
+    and letting the next layers undo it leaves the loss unchanged, so gamma sits
+    on a flat direction with nothing pushing back. AdamW then walks it outward
+    at ~lr per step regardless of gradient size. Unbounded, the first E1 attempt
+    reached |gamma| = 325 by 72k iters (71% of it a constant shared by every
+    image, i.e. a free per-channel rescale, not guidance), the backbone
+    co-adapted to a moving target, and validation collapsed to 3-8 dB against a
+    19.6 dB baseline. Neither guard in the recipe helps: grad-clip is nearly a
+    no-op under Adam (scale-invariant to uniform gradient rescaling) and
+    decoupled weight decay contributes lr*wd = 3e-8 per step.
+
+    tanh(0) = 0, so the zero-init identity at t=0 is preserved exactly.
     """
 
-    def __init__(self, in_dim, channels, hidden=512):
+    def __init__(self, in_dim, channels, hidden=512,
+                 gamma_scale=0.5, beta_scale=0.5):
         super().__init__()
         self.channels = list(channels)          # e.g. [384,192,96,96]
         self.total = sum(self.channels)
+        self.gamma_scale = float(gamma_scale)
+        self.beta_scale = float(beta_scale)
         self.mlp = nn.Sequential(
             nn.Linear(in_dim, hidden),
             nn.GELU(),
@@ -215,7 +237,8 @@ class FiLMHead(nn.Module):
 
     def forward(self, feat):
         out = self.mlp(feat)                    # [B, 2*total]
-        gamma_all, beta_all = out[:, :self.total], out[:, self.total:]
+        gamma_all = self.gamma_scale * torch.tanh(out[:, :self.total])
+        beta_all = self.beta_scale * torch.tanh(out[:, self.total:])
         gammas = torch.split(gamma_all, self.channels, dim=1)
         betas = torch.split(beta_all, self.channels, dim=1)
         return gammas, betas
@@ -241,6 +264,8 @@ class RestormerDINO(Restormer):
                  dino_feat_mean=None,      # .pt with the per-arm pooled mean (A6)
                  dino_stub=False,          # True -> offline stub, wiring test only
                  film_hidden=512,
+                 film_gamma_scale=0.5,     # |gamma| <= this (tanh-bounded)
+                 film_beta_scale=0.5,      # |beta|  <= this
                  **restormer_kwargs):
         super().__init__(**restormer_kwargs)   # builds backbone first (identical init)
 
@@ -261,7 +286,13 @@ class RestormerDINO(Restormer):
                 hub_dir=dino_hub_dir, weights=dino_weights,
                 feat_mean=dino_feat_mean)
 
-        self.film = FiLMHead(self.dino.feat_dim, self.film_channels, hidden=film_hidden)
+        self.film = FiLMHead(self.dino.feat_dim, self.film_channels,
+                             hidden=film_hidden, gamma_scale=film_gamma_scale,
+                             beta_scale=film_beta_scale)
+        # Populated each forward so the training loop can LOG the modulation
+        # magnitude. The first E1 attempt failed invisibly for 73k iters because
+        # nothing ever looked at gamma. Cheap detached scalars, no graph held.
+        self.last_film_stats = {}
 
     def train(self, mode=True):
         super().train(mode)
@@ -277,6 +308,17 @@ class RestormerDINO(Restormer):
         if apply_film:
             feat = self.dino(inp_img if dino_img is None else dino_img)
             gammas, betas = self.film(feat)
+            with torch.no_grad():
+                g = torch.cat(gammas, 1)
+                b = torch.cat(betas, 1)
+                self.last_film_stats = {
+                    'film_g_absmax': g.abs().max().detach(),
+                    'film_b_absmax': b.abs().max().detach(),
+                    # std ACROSS the batch: how input-dependent the modulation
+                    # is. Near 0 => gamma is a constant rescale, not guidance.
+                    'film_g_std': (g.std(0).mean().detach() if g.shape[0] > 1
+                                   else torch.zeros((), device=g.device)),
+                }
 
         # --- baseline Restormer forward, with FiLM at 4 points ---
         inp_enc_level1 = self.patch_embed(inp_img)

@@ -87,7 +87,30 @@ check('all gamma == 0 and all beta == 0', allz)
 print('4) FiLM channel counts match the backbone stages')
 check('film_channels == [384,192,96,96]', net.film_channels == [384, 192, 96, 96])
 
-print('5) only DINO is frozen; FiLM head + backbone are trainable')
+print('5) MODULATION IS BOUNDED even for absurd features (the Step 22 failure)')
+# The first E1 attempt let gamma run to 325. Prove that is now impossible: drive
+# the FiLM head with wildly out-of-range inputs AND blown-up weights, and check
+# |gamma| <= gamma_scale, |beta| <= beta_scale regardless.
+gs, bs = net.film.gamma_scale, net.film.beta_scale
+with torch.no_grad():
+    net.film.mlp[-1].weight.normal_(0, 50.0)      # simulate a runaway head
+    net.film.mlp[-1].bias.normal_(0, 50.0)
+    worst_g = worst_b = 0.0
+    for scale in (0.0, 1.0, 1e3, 1e6):
+        gg, bb = net.film(torch.randn(4, net.dino.feat_dim) * scale)
+        worst_g = max(worst_g, max(t.abs().max().item() for t in gg))
+        worst_b = max(worst_b, max(t.abs().max().item() for t in bb))
+print(f'       gamma_scale={gs}  beta_scale={bs}')
+print(f'       worst |gamma| over feature scales up to 1e6: {worst_g:.6f}')
+print(f'       worst |beta|  over feature scales up to 1e6: {worst_b:.6f}')
+check('|gamma| <= gamma_scale always', worst_g <= gs + 1e-6)
+check('|beta|  <= beta_scale  always', worst_b <= bs + 1e-6)
+check('(1+gamma) cannot reach 0 or invert', gs < 1.0)
+# restore zero-init so the later checks still test the shipped model
+with torch.no_grad():
+    net.film.mlp[-1].weight.zero_(); net.film.mlp[-1].bias.zero_()
+
+print('6) only DINO is frozen; FiLM head + backbone are trainable')
 n_train = sum(p.numel() for p in net.parameters() if p.requires_grad)
 n_dino = sum(p.numel() for p in net.dino.parameters())
 n_frozen = sum(p.numel() for p in net.parameters() if not p.requires_grad)

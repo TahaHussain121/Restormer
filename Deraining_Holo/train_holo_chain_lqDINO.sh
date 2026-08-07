@@ -5,7 +5,7 @@
 #SBATCH --time=23:00:00
 #SBATCH --export=NONE
 #SBATCH --job-name=holo_lqDINO
-#SBATCH --output=experiments/Holo_chain_state_lqDINO/slurm_chain_%j.out
+#SBATCH --output=experiments/Holo_chain_state_lqDINO_v2/slurm_chain_%j.out
 #
 # =============================================================================
 # Self-chaining resume driver for E1 arm B: lqDINO (DINO sees the noisy LQ crop).
@@ -20,6 +20,13 @@
 # The Exp 2 baseline also ran on v100, so per-step cost is comparable to it plus
 # the frozen ViT-B forward. Expect MORE chained jobs than the a100 arm.
 #
+# v2 = the BOUNDED-FiLM relaunch (DEVLOG Step 22). The v1 dirs hold the broken
+# unbounded run's training_states; basicsr auto-resumes from the highest .state
+# under experiments/<name>/, so the v2 experiment name is what keeps this run
+# from silently continuing the failed one. Do not point this back at v1.
+#
+# PRECONDITION: Deraining_Holo/gate_lqDINO.sh must have PASSED first.
+#
 # Submit ONCE:
 #     sbatch Deraining_Holo/train_holo_chain_lqDINO.sh
 # =============================================================================
@@ -28,8 +35,8 @@ unset SLURM_EXPORT_ENV
 
 REPO=/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer
 SCRIPT=$REPO/Deraining_Holo/train_holo_chain_lqDINO.sh
-EXP_DIR=$REPO/experiments/Holo_DINOv2_lqDINO_verynoisy   # basicsr-managed (states, models)
-CHAIN_DIR=$REPO/experiments/Holo_chain_state_lqDINO         # our bookkeeping (markers, logs)
+EXP_DIR=$REPO/experiments/Holo_DINOv2_lqDINO_verynoisy_v2   # basicsr-managed (states, models)
+CHAIN_DIR=$REPO/experiments/Holo_chain_state_lqDINO_v2         # our bookkeeping (markers, logs)
 DONE_FILE=$CHAIN_DIR/TRAINING_DONE
 ABORT_FILE=$CHAIN_DIR/CHAIN_ABORTED
 COUNT_FILE=$CHAIN_DIR/CHAIN_COUNT

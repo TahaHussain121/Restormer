@@ -1,34 +1,23 @@
 # =============================================================================
-# Holo Baseline Restormer — FULL ORIGINAL Restormer deraining recipe (300k).
+# GENERATED from Holo_DINOv2_lqDINO_Restormer.yml -- do not hand-edit.
+# Regenerate: python Deraining_Holo/make_gate_configs.py
 #
-# This config restores the upstream Restormer deraining training recipe
-# (total_iter=300000, full progressive patch schedule). The earlier 75k run is
-# obsolete (it never left progressive stage 1 / 128px).
+# STABILITY GATE (DEVLOG Step 22). A 4000-iteration run whose ONLY purpose is to
+# answer "is this run healthy?" before committing ~3 GPU-days to it. Identical to
+# the full config except: total_iter 4000, val every 1000, print every 200, and
+# its own experiment name so it never touches the real run's directory.
 #
-# INTENTIONAL differences from the upstream deraining recipe:
-#   - network_g: inp_channels=1, out_channels=1   (CFR heatmaps are grayscale)
-#   - datasets:  type: Dataset_PairedImage_uint16 (uint16 PNG loader, /65535)
-#   - dataset paths point to our holographic_image_dataset/{train,val}_clean
-#     (GT) and /{train,val}_verynoisy (LQ input)
-#   - num_gpu: 1, num_worker_per_gpu: 2           (single A100 on HPC)
-#   - logger.save_checkpoint_freq: 2000           (HPC walltime resume safety)
-#   - logger.use_tb_logger: true                  (TensorBoard monitoring)
-#   - path.resume_state mechanism documented      (multi-job resume after kill)
-#
-#   NOTE (thesis): the upstream recipe assumes 8 GPUs => effective batch 64.
-#   We run 1 GPU => effective batch 8. This must be reported in the thesis.
-#
-#   - Progressive schedule truncated at native resolution: original 320/384
-#     stages would require reflect-padding 256x256 images, creating mirrored
-#     side-lobe artifacts that don't physically exist. The final three original
-#     stages (36k+36k+24k iters) are merged into one 96k-iter stage at 256
-#     (full image), batch 2.
+# PASS CRITERION: val PSNR at iter 4000 >= 18 dB.
+# The Exp 2 baseline reached 19.62 dB at its first validation; the two FAILED
+# unbounded-FiLM arms were at 3.22 and 7.80 dB at the same point. This gate would
+# have caught that failure in ~30 minutes instead of ~20 GPU-hours.
+# Also watch film_g_absmax (must stay <= film_gamma_scale) and film_g_std
+# (near 0 => gamma is a constant rescale, not input-dependent guidance).
 # =============================================================================
-
 # general settings
 # DINO VARIANT B (lqDINO): DINO sees the SAME noisy LQ crop as Restormer.
 # dino_img defaults to None in the arch -> falls back to inp_img (the LQ).
-name: Holo_DINOv2_lqDINO_verynoisy_v2
+name: Holo_DINOv2_lqDINO_GATE
 model_type: ImageCleanModelDINO   # = ImageCleanModel + FiLM gamma/beta logging
 scale: 1
 num_gpu: 1  # set num_gpu: 0 for cpu mode
@@ -129,7 +118,7 @@ path:
 
 # training settings
 train:
-  total_iter: 300000
+  total_iter: 4000
   warmup_iter: -1 # no warm up
   use_grad_clip: true
 
@@ -162,7 +151,7 @@ train:
 # validation settings
 val:
   window_size: 8
-  val_freq: !!float 4e3
+  val_freq: !!float 1e3
   save_img: false
   rgb2bgr: true
   use_image: true
@@ -180,10 +169,10 @@ val:
 
 # logging settings
 logger:
-  print_freq: 1000
-  save_checkpoint_freq: !!float 2e3
+  print_freq: 200
+  save_checkpoint_freq: !!float 4e3
   use_tb_logger: true
-  tb_logger_dir: tb_logger/Holo_DINOv2_lqDINO_verynoisy_v2
+  tb_logger_dir: tb_logger/Holo_DINOv2_lqDINO_GATE
   wandb:
     project: ~
     resume_id: ~

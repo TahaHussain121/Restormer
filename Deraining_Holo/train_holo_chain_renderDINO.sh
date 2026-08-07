@@ -5,7 +5,7 @@
 #SBATCH --time=23:00:00
 #SBATCH --export=NONE
 #SBATCH --job-name=holo_renderDINO
-#SBATCH --output=experiments/Holo_chain_state_renderDINO/slurm_chain_%j.out
+#SBATCH --output=experiments/Holo_chain_state_renderDINO_v2/slurm_chain_%j.out
 #
 # =============================================================================
 # Self-chaining resume driver for E1 arm A: renderDINO (DINO sees the black-bg
@@ -23,6 +23,13 @@
 # wall-clock only -- same code, same seed, same schedule, same data -- but it
 # must be stated, and per-arm training time is not a like-for-like comparison.
 #
+# v2 = the BOUNDED-FiLM relaunch (DEVLOG Step 22). The v1 dirs hold the broken
+# unbounded run's training_states; basicsr auto-resumes from the highest .state
+# under experiments/<name>/, so the v2 experiment name is what keeps this run
+# from silently continuing the failed one. Do not point this back at v1.
+#
+# PRECONDITION: Deraining_Holo/gate_renderDINO.sh must have PASSED first.
+#
 # Submit ONCE:
 #     sbatch Deraining_Holo/train_holo_chain_renderDINO.sh
 # =============================================================================
@@ -31,8 +38,8 @@ unset SLURM_EXPORT_ENV
 
 REPO=/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer
 SCRIPT=$REPO/Deraining_Holo/train_holo_chain_renderDINO.sh
-EXP_DIR=$REPO/experiments/Holo_DINOv2_renderDINO_verynoisy   # basicsr-managed (states, models)
-CHAIN_DIR=$REPO/experiments/Holo_chain_state_renderDINO         # our bookkeeping (markers, logs)
+EXP_DIR=$REPO/experiments/Holo_DINOv2_renderDINO_verynoisy_v2   # basicsr-managed (states, models)
+CHAIN_DIR=$REPO/experiments/Holo_chain_state_renderDINO_v2         # our bookkeeping (markers, logs)
 DONE_FILE=$CHAIN_DIR/TRAINING_DONE
 ABORT_FILE=$CHAIN_DIR/CHAIN_ABORTED
 COUNT_FILE=$CHAIN_DIR/CHAIN_COUNT

@@ -2,15 +2,16 @@ from collections import OrderedDict
 
 import torch
 
-from basicsr.models.image_restoration_model import ImageCleanModel
+from basicsr.models.image_clean_dino_model import ImageCleanModelDINO
 
 
-class ImageCleanModelRender(ImageCleanModel):
-    """ImageCleanModel that also feeds a separate 'dino' image to net_g.
+class ImageCleanModelRender(ImageCleanModelDINO):
+    """ImageCleanModelDINO that also feeds a separate 'dino' image to net_g.
 
-    Identical to ImageCleanModel except the batch carries a 'dino' tensor (the
-    aligned render, from Dataset_PairedImage_uint16_Render) which is passed to
-    net_g as dino_img so DINO looks at the render instead of the LQ input.
+    Identical to ImageCleanModel except (a) the batch carries a 'dino' tensor
+    (the aligned render, from Dataset_PairedImage_uint16_Render) which is passed
+    to net_g as dino_img so DINO looks at the render instead of the LQ input,
+    and (b) FiLM modulation stats are logged (inherited from ImageCleanModelDINO).
     Everything else -- loss, optimizer, schedule, validation padding -- is
     inherited unchanged.
 
@@ -44,6 +45,7 @@ class ImageCleanModelRender(ImageCleanModel):
         self.optimizer_g.step()
 
         self.log_dict = self.reduce_loss_dict(loss_dict)
+        self._log_film_stats()
 
         if self.ema_decay > 0:
             self.model_ema(decay=self.ema_decay)
