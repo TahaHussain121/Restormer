@@ -769,3 +769,42 @@ VERIFIED (CPU, before any GPU time):
     both arms log film_g_absmax (0.017 / 0.013), within bound, film_g_std > 0.
 
 NOT YET RUN: the gates. Nothing chains to 300k until a gate passes.
+
+## Step 24 — Both gates FAIL: bounding stopped the explosion, not the failure (2026-08-07)
+
+Gate jobs 1771540 (renderDINO, a100) and 1771541 (lqDINO, v100), 4000 iters each,
+~35 min. Both rc=0, no crash. Both FAIL the 18 dB criterion.
+
+  arm          val@1k   val@2k   val@3k   val@4k   Exp2 baseline @4k
+  renderDINO   15.12    14.00    12.88    14.82        19.62
+  lqDINO       12.68     7.93     7.15     6.69        19.62
+
+The bound HELD exactly as designed -- max |gamma| 0.49992 / 0.49998, no ±2e9
+outputs, no divergence. That failure mode is gone. But the model is still worse
+than the baseline, and lqDINO gets steadily WORSE over the run.
+
+WHAT THE gamma LOG SHOWS (this is why the logging was added):
+  |gamma|max reaches ~0.31 by iter 200, ~0.48 by iter 400, and is pinned at
+  0.4995-0.4999 from ~iter 1000 to the end. It saturates the tanh rail almost
+  immediately and stays there.
+  film_g_std (input-dependence) DECAYS: renderDINO 0.073 @400 -> 0.011 @4000.
+  So gamma degenerates into a near-CONSTANT +/-0.5 mask -- and once tanh is
+  saturated its gradient vanishes, so the head can no longer modulate on the
+  input even in principle. Worst of both worlds: a large fixed multiplicative
+  distortion the backbone must spend its capacity undoing.
+
+READING (not softened). Bounding was necessary and it worked, but it was not
+sufficient. The real problem is a RACE: at iter 200 the backbone is still random,
+and the fastest available loss reduction for a randomly-initialised FiLM head is
+the scale degeneracy. It takes it, saturates, and the backbone spends the rest of
+training compensating for a constant distortion. Capping the magnitude only caps
+how bad the distortion is; it does not stop the head from going straight to it.
+
+Structural note for the thesis: FiLM/adapter conditioning in the literature
+(ControlNet, T2I-Adapter) attaches to a PRETRAINED, frozen or near-frozen
+backbone. Here the backbone is trained from scratch simultaneously with the
+conditioning head, which is what creates the race. That mismatch is the honest
+framing of these two failures.
+
+No GPU is running. Nothing was chained. Cost of this iteration: ~35 min x 2,
+which is the point of the gate.
