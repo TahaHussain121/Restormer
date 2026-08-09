@@ -866,3 +866,63 @@ VERIFIED (CPU, both arms, before GPU time):
   - sanity_check_dino_film.py still all-PASS (identity at init unchanged).
 
 Gates submitted: jobs to follow. Nothing chains to 300k until both pass.
+
+## Step 26 — Attempt 3 gates: BOTH fail. Warmup only delayed the runaway (2026-08-09)
+
+Jobs 1771676 (renderDINO, a100, 2h02) and 1771677 (lqDINO, v100, 3h05), 16k iters.
+
+  iter    renderDINO   lqDINO      phase
+   2000      17.847    17.393      warmup, FiLM OFF = baseline
+   4000      19.293    19.324      warmup, FiLM OFF = baseline
+   6000      19.558    19.417      ramping
+   8000      19.328    19.377      ramping
+  10000      20.203    19.447      FiLM full
+  12000      18.691    17.619      FiLM full
+  14000      18.119    17.404      FiLM full
+  16000      20.002    17.599      FiLM full
+
+lqDINO FAILS outright: 17.60 final vs 19.32 from its own warmup baseline, i.e.
+switching FiLM on costs 1.7 dB. |gamma| reached 99% of the 0.5 bound by 14k.
+
+renderDINO initially read PASS -- and that verdict was WRONG. The endpoint value
+was fine (20.00 vs 19.29 baseline) but |gamma| was mid-explosion:
+
+  iter    13,000  |g|max=1.19e-03   ( 0.2% of bound)
+  iter    14,000  |g|max=1.18e-02   ( 2.4%)
+  iter    15,000  |g|max=8.10e-02   (16.2%)
+  iter    16,000  |g|max=2.08e-01   (41.7%)
+
+~10x per 1000 iterations, 254x over the second half of the run. The gate stopped
+at the knee of the curve. Extrapolated, renderDINO reaches the rail within ~2k
+more iterations -- it is on exactly lqDINO's trajectory, delayed ~5k iters by the
+warmup. A 300k run would certainly have degraded.
+
+GATE BUGS FOUND AND FIXED (both mine):
+  1. the verdict tested only the FINAL val PSNR, so a run one step from the cliff
+     passed. Added criterion [3]: |gamma|max in the final quarter must be < half
+     the bound AND must not have grown >20x over the run. Under the corrected
+     criteria BOTH arms FAIL (renderDINO on [3], lqDINO on all three).
+  2. iteration labels were off by one validation -- basicsr runs an extra
+     end-of-training validation that duplicates the last one, so the table
+     showed a nonexistent "18000" row. Now de-duplicated.
+  Verdict logic moved out of the sbatch heredoc into Deraining_Holo/gate_verdict.py
+  so it can be re-run against any finished gate log.
+
+DIAGNOSIS. gamma grows GEOMETRICALLY once FiLM switches on (~10x/1000 iters),
+far faster than the linear/quadratic drift that raw parameter growth under Adam
+would produce. That is positive feedback: as the modulation grows the backbone
+adapts to depend on it, which increases the gradient pushing it further. The
+scale degeneracy is not merely unconstrained, it is self-reinforcing, and it is
+self-reinforcing precisely BECAUSE the backbone is free to co-adapt.
+
+CONCLUSION (three attempts, consistent): this cannot be fixed by tuning bounds,
+learning rates or schedules while the backbone trains from scratch alongside the
+conditioning head. Bounding capped the damage; warmup delayed the onset; neither
+removes the feedback loop. The remaining lever is to remove the backbone's
+freedom to co-adapt -- i.e. attach FiLM to the TRAINED Exp 2 backbone
+(net_g_292000.pth), frozen or at a much lower LR, which is also how FiLM/adapter
+conditioning is done in the literature (ControlNet, T2I-Adapter). That is a
+pre-registration change and is the user's call.
+
+Cost so far: 3 gate rounds, ~10 GPU-hours total. The gate is doing its job -- the
+alternative was three 3-GPU-day runs.

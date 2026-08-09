@@ -45,35 +45,5 @@ echo "[gate] training exited rc=$?"
 
 LOG=$(ls -t "$EXP"/*.log 2>/dev/null | head -1)
 echo "[gate] ---------------- RESULT (lqDINO) ----------------"
-python - "$LOG" <<'PYEOF'
-import re, sys
-log = open(sys.argv[1]).read()
-# val PSNR in order; val_freq is 2000 so val k is iter (k+1)*2000
-ps = [float(x) for x in re.findall(r'# psnr: ([0-9.]+)', log)]
-# per-print modulation stats
-rows = re.findall(r'iter:\s+([\d,]+).*?l_pix: ([0-9.e+-]+)'
-                  r'(?:.*?film_g_absmax: ([0-9.e+-]+))?'
-                  r'(?:.*?film_g_std: ([0-9.e+-]+))?'
-                  r'(?:.*?film_ramp: ([0-9.e+-]+))?', log)
-print("  iter    val_psnr")
-for i, p in enumerate(ps):
-    it = (i + 1) * 2000
-    tag = "(warmup: FiLM OFF = baseline)" if it <= 5000 else           "(ramping)" if it < 10000 else "(FiLM full)"
-    print(f"  {it:>6}   {p:7.3f}  {tag}")
-print("\n  modulation (every 2000 iters):")
-for it, lp, gm, gs, rp in rows[::10]:
-    print(f"  iter {it:>7}  l_pix={lp}  |g|max={gm or '-'}  g_std={gs or '-'}  ramp={rp or '-'}")
-
-warm = [p for i, p in enumerate(ps) if (i + 1) * 2000 <= 5000]
-base = max(warm) if warm else None
-fin = ps[-1] if ps else None
-c1 = fin is not None and fin >= 18.0
-c2 = base is not None and fin is not None and fin >= base - 1.0
-print(f"\n  baseline (best warmup val) : {base}")
-print(f"  final val PSNR             : {fin}")
-print(f"  [1] final >= 18.0          : {'PASS' if c1 else 'FAIL'}")
-print(f"  [2] final >= baseline - 1  : {'PASS' if c2 else 'FAIL'}")
-print(f"  VERDICT : {'PASS - safe to launch the full run' if (c1 and c2) else 'FAIL - do NOT launch'}")
-sys.exit(0 if (c1 and c2) else 1)
-PYEOF
+python Deraining_Holo/gate_verdict.py "$LOG"
 echo "[gate] ------------------------------------------------"
