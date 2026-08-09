@@ -1,0 +1,269 @@
+{
+  "execution_date": "2026-08-09",
+  "execution_local_time": "14:16:22",
+  "timezone": "CEST",
+  "utc_offset": "+0200",
+  "command": "dino_analysis/visualize_dino_spatial_pca.py --sample-id 0196 --device cpu --compute-centered",
+  "sample_id": "0196",
+  "split": "val",
+  "dataset_index": 8,
+  "pairing_source": "basicsr.data.paired_image_uint16_render_dataset.Dataset_PairedImage_uint16_Render (val phase, no crop)",
+  "path_1e5_very_noisy_radar": "/home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_verynoisy/0196.png",
+  "path_1e7_clean_radar": "/home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_clean/0196.png",
+  "path_render": "/home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_renders_blackbg/0196.png",
+  "config_read": "Deraining_Holo/Options/Holo_DINOv2_renderDINO_Restormer.yml",
+  "dino_model": "dinov2_vitb14",
+  "dino_hub_source": "local",
+  "dino_hub_dir": "/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub/hub/facebookresearch_dinov2_main",
+  "dino_checkpoint": "/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub/hub/checkpoints/dinov2_vitb14_pretrain.pth",
+  "dino_load_strict": true,
+  "transformer_block_count": 12,
+  "selected_blocks_1indexed": [
+    3,
+    6,
+    9,
+    12
+  ],
+  "selected_blocks_0indexed": [
+    2,
+    5,
+    8,
+    11
+  ],
+  "layer_fractions": [
+    "1/4",
+    "2/4",
+    "3/4",
+    "4/4"
+  ],
+  "training_recipe_blocks_1indexed": [
+    1,
+    4,
+    8,
+    12
+  ],
+  "embedding_dim": 768,
+  "patch_size": 14,
+  "num_register_tokens": 0,
+  "dino_input_resolution": [
+    224,
+    224
+  ],
+  "patch_grid": [
+    16,
+    16
+  ],
+  "n_patch_tokens": 256,
+  "preprocessing": {
+    "radar_1e5_1e7": "uint16 PNG / 65535 -> [0,1] 1ch -> replicate to 3ch -> bilinear resize to 224 -> ImageNet normalise (basicsr restormer_dino_arch.dino_preprocess)",
+    "render": "8-bit PNG -> [0,1] 3ch -> bilinear resize to 224 -> ImageNet normalise (same function)",
+    "colormap_before_dino": false
+  },
+  "pca": {
+    "library": "sklearn.decomposition.PCA (svd_solver=full)",
+    "n_components": 3,
+    "fit": "ONE PCA per layer, fitted on the concatenation of the 1e5, 1e7 and render patch tokens (3 x 256 rows), then applied unchanged to each of the three",
+    "per_layer_independent": true,
+    "explained_variance_ratio_pc123": {
+      "raw": [
+        [
+          0.30544939637184143,
+          0.1144297793507576,
+          0.0699855387210846
+        ],
+        [
+          0.18467867374420166,
+          0.12400911748409271,
+          0.11637824773788452
+        ],
+        [
+          0.16182497143745422,
+          0.1255842000246048,
+          0.09129615873098373
+        ],
+        [
+          0.16395987570285797,
+          0.1220899224281311,
+          0.1035332977771759
+        ]
+      ],
+      "centered_per_domain": [
+        [
+          0.1787913590669632,
+          0.12207169830799103,
+          0.08184780180454254
+        ],
+        [
+          0.17611633241176605,
+          0.1384436935186386,
+          0.11431628465652466
+        ],
+        [
+          0.16193033754825592,
+          0.13458086550235748,
+          0.09809879213571548
+        ],
+        [
+          0.1529451310634613,
+          0.07514889538288116,
+          0.0693412721157074
+        ]
+      ],
+      "centered_global": [
+        [
+          0.30544930696487427,
+          0.1144297793507576,
+          0.06998549401760101
+        ],
+        [
+          0.18467873334884644,
+          0.12400925159454346,
+          0.11637807637453079
+        ],
+        [
+          0.16182486712932587,
+          0.125584214925766,
+          0.09129607677459717
+        ],
+        [
+          0.16395992040634155,
+          0.12208998203277588,
+          0.10353332757949829
+        ]
+      ]
+    }
+  },
+  "visualization_normalization": {
+    "method": "robust shared percentile range, p1.0-p99.0 of the JOINT PCA values of that layer over all three inputs; the same (vmin, vmax) is applied to all three rows",
+    "percentiles": [
+      1.0,
+      99.0
+    ],
+    "pc1_shared_range_per_layer": {
+      "raw": [
+        [
+          -63.92789077758789,
+          72.81639099121094
+        ],
+        [
+          -66.7563247680664,
+          69.75930786132812
+        ],
+        [
+          -61.54411697387695,
+          51.6406135559082
+        ],
+        [
+          -27.218486785888672,
+          28.07888412475586
+        ]
+      ],
+      "centered_per_domain": [
+        [
+          -63.687644958496094,
+          58.29654312133789
+        ],
+        [
+          -66.89087677001953,
+          63.58399200439453
+        ],
+        [
+          -54.154354095458984,
+          55.72731018066406
+        ],
+        [
+          -30.123079299926758,
+          26.353504180908203
+        ]
+      ],
+      "centered_global": [
+        [
+          -63.927879333496094,
+          72.81639099121094
+        ],
+        [
+          -66.7563247680664,
+          69.75931549072266
+        ],
+        [
+          -61.54405975341797,
+          51.64057540893555
+        ],
+        [
+          -27.2185115814209,
+          28.078887939453125
+        ]
+      ]
+    },
+    "colormap": "viridis",
+    "upsampling": "bilinear 16x16 -> 224x224 for display only",
+    "rgb": "PC1/PC2/PC3 -> R/G/B, each channel normalised over that layer's joint values with the same robust percentiles"
+  },
+  "centering": {
+    "applied": true,
+    "mode_used_for_figures": "per-domain",
+    "method": "centered_patch = patch_feature - mean_L, applied BEFORE PCA",
+    "statistics_source": "150 images from the TRAIN split, full 256x256 (no crop), seed 0; mean over images AND patch positions, one [C] vector per selected block",
+    "n_training_images": 150,
+    "cache_file": "dino_analysis/dino_spatial_layer_means.pt",
+    "existing_pooled_means_examined": [
+      {
+        "path": "/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/Deraining_Holo/experiment_results/exp3_dino_film/dino_feat_mean_lqDINO.pt",
+        "width": 3072,
+        "arm": "lqDINO",
+        "layers": [
+          0,
+          3,
+          7,
+          11
+        ],
+        "n_crops": 300
+      },
+      {
+        "path": "/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/Deraining_Holo/experiment_results/exp3_dino_film/dino_feat_mean_renderDINO.pt",
+        "width": 3072,
+        "arm": "renderDINO",
+        "layers": [
+          0,
+          3,
+          7,
+          11
+        ],
+        "n_crops": 300
+      }
+    ],
+    "existing_pooled_means_compatible": false,
+    "existing_pooled_means_note": "Existing pooled DINO mean is not directly compatible with spatial patch-token centering: those are 3072-d vectors (4 layers x 768, mean-pooled over patch tokens); spatial centering needs a 768-d mean per layer over images and patch positions. They were NOT used."
+  },
+  "similarity_metric": "mean cosine similarity between corresponding patches (same (i,j)), averaged over all patches",
+  "different_scene_control": {
+    "n_scenes": 12,
+    "scene_ids": [
+      "1235",
+      "5878",
+      "0593",
+      "2583",
+      "1012",
+      "5230",
+      "4658",
+      "4965",
+      "6709",
+      "3947",
+      "2086",
+      "0844"
+    ],
+    "definition": "same measurement, but the second image is taken from a DIFFERENT object of the same split; averaged over the control scenes. gap = same-scene - different-scene.",
+    "why": "DINO patch tokens on this dataset share a large common component, so an absolute cosine is not interpretable on its own; only the same-vs-different gap is."
+  },
+  "random_seed": 0,
+  "device": "cpu",
+  "torch_version": "2.5.1+cu121",
+  "outputs": [
+    "dino_spatial_analysis_metadata.json",
+    "dino_spatial_pca_1e5_1e7_render_centered.png",
+    "dino_spatial_pca_1e5_1e7_render_raw.png",
+    "dino_spatial_pca_rgb_1e5_1e7_render_centered.png",
+    "dino_spatial_pca_rgb_1e5_1e7_render_raw.png",
+    "dino_spatial_similarity_1e5_1e7_render.csv"
+  ]
+}
