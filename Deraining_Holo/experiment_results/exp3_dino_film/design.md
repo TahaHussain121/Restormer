@@ -226,7 +226,7 @@ centered (offset-removed) input features to extract even that.
 
 The arm-A discrimination above used render + synthetic Gaussian noise for
 "same object under noise" -- wrong. The real question is whether DINO links a
-render to the SAME object's actual 1e7 radar heatmap more than to a DIFFERENT
+render to the SAME object's actual 1e5 radar heatmap more than to a DIFFERENT
 object's. No synthetic noise; the "other view" is the real radar image.
 Script: `Deraining_Holo/render_radar_similarity.py`.
 

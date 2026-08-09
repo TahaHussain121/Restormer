@@ -1,7 +1,7 @@
 """Corrected discrimination: does DINO link a RENDER to the SAME object's radar?
 
 Replaces the synthetic-Gaussian version. The real question for the renderDINO
-arm: is DINO(render_i) more similar to DINO(radar_i) [same object, 1e7 verynoisy
+arm: is DINO(render_i) more similar to DINO(radar_i) [same object, 1e5 verynoisy
 heatmap] than to DINO(radar_j) [different object]? No synthetic noise -- the
 "other view" is the actual radar image.
 
@@ -44,7 +44,7 @@ def load_render(name):
     return torch.from_numpy(a).permute(2, 0, 1)
 
 
-def load_radar(name):  # 1e7 verynoisy heatmap, uint16
+def load_radar(name):  # 1e5 verynoisy heatmap, uint16
     a = cv2.imread(f'{DS}/train_verynoisy/{name}', cv2.IMREAD_UNCHANGED).astype(np.float32) / 65535.
     return torch.from_numpy(a).unsqueeze(0)
 

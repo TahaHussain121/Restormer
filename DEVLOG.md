@@ -926,3 +926,33 @@ pre-registration change and is the user's call.
 
 Cost so far: 3 gate rounds, ~10 GPU-hours total. The gate is doing its job -- the
 alternative was three 3-GPU-day runs.
+
+## Step 27 — CORRECTION: the ray counts were documented backwards (2026-08-09)
+
+User correction: **clean = 1e7 rays, verynoisy = 1e5 rays**. The docs had it the
+wrong way round from the very beginning (DEVLOG Step 1 / CONTEXT.md problem
+statement said input 1e7, target 1e6). It was also physically backwards -- more
+rays means less Monte-Carlo noise, so the CLEAN image must be the HIGH ray count.
+
+Verified empirically before changing anything, PSNR against `clean` over 30 val
+images:
+    noisy       29.55 +/- 3.21 dB
+    verynoisy   13.11 +/- 2.39 dB
+i.e. clean > noisy > verynoisy in quality, consistent with a ladder where fewer
+rays = more noise. The dataset's three variants (clean / noisy / verynoisy) match
+a 1e7 / 1e6 / 1e5 ladder.
+
+`noisy`'s exact count is [UNCONFIRMED] -- the user stated clean and verynoisy
+only; 1e6 is inferred from the ladder and is marked as an assumption, not a fact.
+
+SCOPE OF THE ERROR: labels and prose only. Every experiment trained
+degraded -> clean using the actual files, so no result, metric or conclusion
+changes. Exp 1, Exp 2 and all of E1 are unaffected. What IS affected is anything
+written up describing the data, including thesis text.
+
+Corrected in: CONTEXT.md (problem statement, with the reasoning), HANDOVER.md
+(dataset section + the render<->radar description), design.md (render<->radar
+test), render_radar_similarity.py (two comments), and the data example figure
+experiment_results/exp3_dino_film/data_example_verynoisy_vs_clean.png.
+DEVLOG Step 1's original line is left as written -- this entry is the correction,
+since the log is append-only.

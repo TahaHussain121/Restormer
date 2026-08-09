@@ -90,7 +90,7 @@ xformers/timm NOT needed (DINO falls back to vanilla attention).
    Raw cosine ~0.9 for everything; centering reveals a WEAK object signal (see design.md
    "Feature-separation analysis"). CORRECTED render↔radar test (`render_radar_similarity.py`,
    replaces the wrong synthetic-Gaussian arm-A test): does DINO link a render to the SAME
-   object's 1e7 radar heatmap more than a different object's? RAW is object-blind (d≈0.03@128,
+   object's 1e5 radar heatmap more than a different object's? RAW is object-blind (d≈0.03@128,
    null@256); CENTERED shows a real, significant signal (d=+0.25/+8.6σ @128, +0.17/+6σ @256;
    same-object residual cos 0.27 vs different 0.02). So the render carries modest object
    identity that transfers to radar — but ONLY in the centered residual. Strengthens the case
@@ -165,7 +165,7 @@ run concurrently without touching each other or the Exp 2 baseline. Neither has
 ever been submitted — they are untested against the scheduler.
 
 ## Dataset (holographic_image_dataset), split seed 42
-Per object, aligned by filename across: `*_clean` (1e6 GT), `*_verynoisy` (1e7 LQ),
+Per object, aligned by filename across: `*_clean` (**1e7** GT), `*_verynoisy` (**1e5** LQ),
 `*_renders_blackbg` (black-bg render, DINO ref for arm A). Splits: train 6101 / val 339 /
 test 338. `splits/{train,val,test}.txt`. renders_blackbg made from renders/ at threshold 250.
 

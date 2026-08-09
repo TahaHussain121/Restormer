@@ -8,8 +8,16 @@ Repo being adapted: https://github.com/swz30/Restormer
 
 ## Problem Statement
 Denoising holographic backprojection heatmaps from an SFCW MIMO radar.
-- Input (degraded): CFR heatmap at 1e7 ray count — noisy, strong side lobes
-- Target (clean): CFR heatmap at 1e6 ray count — cleaner reference
+- Target (clean): CFR heatmap at **1e7** ray count — cleaner reference
+- Input (degraded): fewer rays => more Monte-Carlo noise + strong side lobes.
+  `verynoisy` = **1e5** rays (the Exp 2 / E1 input). `noisy` = the intermediate
+  level (Exp 1's input) — its exact count is [UNCONFIRMED], assumed 1e6.
+  *** CORRECTED 2026-08-09 (user). These numbers were previously written the
+  WRONG WAY ROUND (input 1e7 / target 1e6). More rays = LESS noise, so the
+  clean target is the HIGH ray count. Verified empirically: PSNR against clean
+  is 29.55 dB for `noisy` and 13.11 dB for `verynoisy` (n=30 val images), i.e.
+  clean > noisy > verynoisy in quality. Only the LABELS were wrong — every
+  experiment trained degraded -> clean and is unaffected. ***
 - Data: ShapeNetCore.v2 chairs, rendered via shapenet_radar package
 - Image format: single-channel grayscale PNG, 256x256
 - Pairing: fully supervised — clean/noisy pairs exist
