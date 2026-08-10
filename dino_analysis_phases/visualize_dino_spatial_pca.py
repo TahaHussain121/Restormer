@@ -103,8 +103,12 @@ OUT_DIR = os.path.join(HERE, 'outputs')
 DEFAULT_OPT = os.path.join(
     _REPO, 'Deraining_Holo', 'Options', 'DINO_analysis_data.yml')
 DEFAULT_MEANS = os.path.join(HERE, 'dino_spatial_layer_means.pt')
+# The E1 pooled means. E1 itself was removed, but these two vectors are kept as
+# reference inputs: report_pooled_mean_incompatibility() reads them to record WHY
+# spatial centering cannot reuse them. Moved out of the deleted exp3_dino_film/.
 POOLED_MEANS = [
-    os.path.join(_REPO, 'Deraining_Holo', 'experiment_results', 'exp3_dino_film',
+    os.path.join(_REPO, 'Deraining_Holo', 'experiment_results',
+                 'dino_pooled_means_reference',
                  f'dino_feat_mean_{a}.pt') for a in ('lqDINO', 'renderDINO')]
 
 # Row identity. Keys are used everywhere (features, means, CSV); labels are the

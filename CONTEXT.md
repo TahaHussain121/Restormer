@@ -179,6 +179,24 @@ records of what those runs actually read, and were deliberately not rewritten. P
 consistency check compares dino_model / dino_checkpoint / dino_hub_source only, so the stale
 path strings do not affect it.
 
+The two E1 pooled feature means SURVIVE the E1 removal, at
+  Deraining_Holo/experiment_results/dino_pooled_means_reference/dino_feat_mean_{lq,render}DINO.pt
+They are 3072-d (4 layers x 768) vectors mean-POOLED over patch tokens, computed over 300
+training crops for E1's FiLM centering. The analysis never uses them for centering
+(build_extractor passes feat_mean=None; spatial centering uses its own 768-d per-layer means
+in dino_analysis_phases/dino_spatial_layer_means.pt). They are kept because
+report_pooled_mean_incompatibility() reads them to RECORD why the pooled vectors cannot be
+reused spatially — the result lands in metadata as centering.existing_pooled_means_examined.
+Delete them and that field silently becomes [] on every future run, which would not match the
+committed runs. Do not delete.
+
+Removed 2026-08-10: the upstream Denoising/ task directory (Gaussian + real image denoising,
+23 files). Nothing in this project referenced it, and Deraining/, Motion_Deblurring/ and
+Defocus_Deblurring/ were already deleted back in DEVLOG Step 1. Dataset_GaussianDenoising
+still lives in basicsr/data/paired_image_dataset.py and is untouched. Upstream README.md
+still links to Denoising/README.md — those 4 links now dangle; README is upstream boilerplate
+and was deliberately left alone.
+
 Prior (2026-08-10): Phase 2 (DINO prior source: 1e5 radar vs render) complete after the
 block/feature alignment fix. Phase 1: Block 6 leads, Block 9 does not generalise (339/339
 val triplets). See dino_analysis_phases/DINO_ANALYSIS_DEVLOG.md and the per-phase devlogs.
