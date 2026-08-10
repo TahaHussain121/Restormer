@@ -183,13 +183,24 @@ def derangement(n, seed):
 # extraction
 # ---------------------------------------------------------------------------
 @torch.no_grad()
-def extract(ext, batch, domains, blocks0, img_size, device):
-    """{domain: [ [N,C] per selected block ]} — spatial patch tokens, no pooling."""
+def extract(ext, batch, domains, blocks1, img_size, device):
+    """{domain: {block_1indexed: [N,C]}} — spatial patch tokens, no pooling.
+
+    KEYED BY BLOCK, deliberately. DINOv2's `get_intermediate_layers` walks the
+    blocks in order and appends whenever `i in blocks_to_take`, so it returns
+    outputs in ASCENDING block order no matter what order `n` is given in.
+    Indexing the returned list positionally against a caller-ordered block list
+    silently mismatches features and blocks (and, once centering is applied,
+    subtracts the wrong block's mean). Returning a dict removes the trap.
+    """
+    order = sorted(set(int(b) for b in blocks1))       # the order DINOv2 will use
+    blocks0 = [b - 1 for b in order]
     inputs = base.batch_to_dino_inputs(batch, img_size, ext.mean.cpu(), ext.std.cpu())
     stack = torch.cat([inputs[d] for d in domains], dim=0).to(device)
     per_block = base.spatial_tokens(ext, stack, blocks0)
-    return inputs, {d: [pb[k].numpy() for pb in per_block]
-                    for k, d in enumerate(domains)}
+    return inputs, {d: {order[k]: per_block[k][di].numpy()
+                        for k in range(len(order))}
+                    for di, d in enumerate(domains)}
 
 
 def centered(feat, means, domain, layer_idx, mode):
@@ -483,6 +494,8 @@ def main():
     ap.add_argument('--display-size', type=int, default=224)
     ap.add_argument('--cmap', default='viridis')
     ap.add_argument('--dpi', type=int, default=300)
+    ap.add_argument('--skip-consistency-check', action='store_true',
+                    help='skip verifying similarity_1e5_to_clean against Phase 1')
     ap.add_argument('--no-devlog', action='store_true')
     args = ap.parse_args()
 
@@ -638,9 +651,9 @@ def main():
     print(f'\n  --- pass 1/2: extracting DINO(1e7) targets for {n} samples ---')
     clean = {}
     for c, sid in enumerate(ids, 1):
-        _, f = extract(ext, ds[id_to_index[sid]], ['1e7'], blocks0, img_size,
-                       args.device)
-        if f['1e7'][0].shape[0] != gh * gw:
+        _, f = extract(ext, ds[id_to_index[sid]], ['1e7'], blocks_analyzed,
+                       img_size, args.device)
+        if f['1e7'][blocks_analyzed[0]].shape[0] != gh * gw:
             raise SystemExit(f'{sid}: token count != {gh}*{gw}')
         clean[sid] = f['1e7']
         if c % 50 == 0 or c == n:
@@ -660,19 +673,19 @@ def main():
         w.writeheader()
         for c, sid in enumerate(ids, 1):
             _, src = extract(ext, ds[id_to_index[sid]], ['1e5', 'render'],
-                             blocks0, img_size, args.device)
+                             blocks_analyzed, img_size, args.device)
             j = control_id[sid]
-            for bi, b in enumerate(blocks_analyzed):
+            for b in blocks_analyzed:
                 for ft in FEATURE_TYPES:
                     if ft == 'raw':
-                        a = src['1e5'][bi]; r = src['render'][bi]
-                        t = clean[sid][bi]; t_diff = clean[j][bi]
+                        a = src['1e5'][b]; r = src['render'][b]
+                        t = clean[sid][b]; t_diff = clean[j][b]
                     else:
                         li = layer_idx[b]
-                        a = centered(src['1e5'][bi], means, '1e5', li, mode)
-                        r = centered(src['render'][bi], means, 'render', li, mode)
-                        t = centered(clean[sid][bi], means, '1e7', li, mode)
-                        t_diff = centered(clean[j][bi], means, '1e7', li, mode)
+                        a = centered(src['1e5'][b], means, '1e5', li, mode)
+                        r = centered(src['render'][b], means, 'render', li, mode)
+                        t = centered(clean[sid][b], means, '1e7', li, mode)
+                        t_diff = centered(clean[j][b], means, '1e7', li, mode)
                     s_1e5 = base.patchwise_cosine(a, t)
                     s_ren = base.patchwise_cosine(r, t)
                     d_1e5 = base.patchwise_cosine(a, t_diff)
@@ -697,8 +710,42 @@ def main():
                 print(f'    {c}/{n}')
     print(f'  wrote {os.path.relpath(per_path, _REPO)}')
 
-    # ---------------- summary (from the saved CSV) ----------------
+    # ---------------- cross-check against Phase 1 ----------------
+    # similarity_1e5_to_clean IS Phase 1's similarity_1e5_vs_1e7 -- same features,
+    # same centering, same samples. If the two disagree, something is misaligned
+    # (this check exists because an earlier version indexed DINOv2's ascending
+    # block output positionally against a caller-ordered block list, silently
+    # pairing block-3 features with the block-6 mean).
     rows = list(csv.DictReader(open(per_path)))
+    if not args.skip_consistency_check:
+        if args.centering_mode and args.centering_mode != p1_meta['centering']['mode']:
+            print('\n  Phase 1 cross-check SKIPPED: --centering-mode differs from '
+                  'Phase 1, so the centered values are not expected to match')
+        else:
+            p1_lookup = {(r['sample_id'], r['feature_type'], int(r['block_index'])):
+                         float(r['similarity_1e5_vs_1e7']) for r in p1_per_sample}
+            checked, worst, worst_key = 0, 0.0, None
+            for r in rows:
+                k = (r['sample_id'], r['feature_type'], int(r['block_index']))
+                if k not in p1_lookup:
+                    continue
+                diff = abs(float(r['similarity_1e5_to_clean']) - p1_lookup[k])
+                checked += 1
+                if diff > worst:
+                    worst, worst_key = diff, k
+            if checked == 0:
+                raise SystemExit('Phase 1 cross-check found no comparable rows')
+            if worst > 1e-4:
+                raise SystemExit(
+                    f'PHASE 1 CROSS-CHECK FAILED: similarity_1e5_to_clean differs '
+                    f'from Phase 1 similarity_1e5_vs_1e7 by {worst:.6f} at '
+                    f'{worst_key} (tolerance 1e-4). The two must be the identical '
+                    f'quantity -- features and blocks are misaligned somewhere. '
+                    f'Results NOT trustworthy; not writing plots or devlog.')
+            print(f'\n  Phase 1 cross-check PASSED: {checked} rows match Phase 1 '
+                  f'similarity_1e5_vs_1e7 (max abs diff {worst:.2e})')
+
+    # ---------------- summary (from the saved CSV) ----------------
     series, stats = {}, {}
     for r in rows:
         key = (r['feature_type'], int(r['block_index']))
@@ -866,11 +913,11 @@ def main():
         if reason:
             print(f'  [skip figure] {sid}: {reason}')
             continue
-        inputs, feats = extract(ext, batch, base.DOMAINS, all_blocks0, img_size,
-                                args.device)
-        if mode:
-            feats = {d: [centered(feats[d][k], means, d, k, mode)
-                         for k in range(len(all_blocks1))] for d in base.DOMAINS}
+        inputs, fd = extract(ext, batch, base.DOMAINS, all_blocks1, img_size,
+                             args.device)
+        # -> list ordered like all_blocks1, centred with THAT block's own mean
+        feats = {d: [centered(fd[d][b], means, d, means_blocks1.index(b), mode)
+                     for b in all_blocks1] for d in base.DOMAINS}
         title = (f'Spatial DINO PCA-1 — Very Noisy Radar (1e5) vs Clean Radar '
                  f'(1e7) vs Render\nPhase 2 representative: {tag.replace("_", " ")}'
                  f'   |   sample {sid}   |   B{block} centered, '
