@@ -1,0 +1,185 @@
+{
+  "phase": 1,
+  "execution_date": "2026-08-10",
+  "execution_local_time": "11:05:13",
+  "timezone": "CEST",
+  "utc_offset": "+0200",
+  "finished_local_time": "11:05:48",
+  "command": "dino_analysis/phase1/analyze_dino_spatial_consistency.py --device cuda",
+  "smoke_test": false,
+  "output_dir": "dino_analysis/phase1/outputs",
+  "dino_model": "dinov2_vitb14",
+  "dino_hub_source": "local",
+  "dino_hub_dir": "/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub/hub/facebookresearch_dinov2_main",
+  "dino_checkpoint": "/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub/hub/checkpoints/dinov2_vitb14_pretrain.pth",
+  "config_read": "Deraining_Holo/Options/Holo_DINOv2_renderDINO_Restormer.yml",
+  "split": "val",
+  "split_dataroots": {
+    "dataroot_lq": "/home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_verynoisy",
+    "dataroot_gt": "/home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_clean",
+    "dataroot_render": "/home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_renders_blackbg"
+  },
+  "total_validation_samples_considered": 339,
+  "total_in_split": 339,
+  "valid_triplets_analyzed": 339,
+  "skipped_count": 0,
+  "skipped_sample_ids": [],
+  "skip_reasons": [],
+  "transformer_block_count": 12,
+  "selected_blocks_1indexed": [
+    3,
+    6,
+    9,
+    12
+  ],
+  "selected_blocks_0indexed": [
+    2,
+    5,
+    8,
+    11
+  ],
+  "layer_fractions": [
+    "1/4",
+    "2/4",
+    "3/4",
+    "4/4"
+  ],
+  "patch_size": 14,
+  "num_register_tokens": 0,
+  "special_token_handling": "CLS + register tokens removed by DINOv2 get_intermediate_layers(return_class_token=False); spatial patch tokens only, no pooling",
+  "dino_input_resolution": [
+    224,
+    224
+  ],
+  "patch_grid": [
+    16,
+    16
+  ],
+  "n_patch_tokens": 256,
+  "embedding_dim": 768,
+  "feature_types": [
+    "raw",
+    "centered"
+  ],
+  "centering": {
+    "mode": "per-domain",
+    "statistic": "mean over training images AND patch positions of the spatial patch tokens",
+    "source_split": "train",
+    "n_training_images": 150,
+    "cache_file": "dino_analysis/dino_spatial_layer_means.pt",
+    "validation_leakage": false,
+    "existing_pooled_means_examined": [
+      {
+        "path": "/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/Deraining_Holo/experiment_results/exp3_dino_film/dino_feat_mean_lqDINO.pt",
+        "width": 3072,
+        "arm": "lqDINO",
+        "layers": [
+          0,
+          3,
+          7,
+          11
+        ],
+        "n_crops": 300
+      },
+      {
+        "path": "/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/Deraining_Holo/experiment_results/exp3_dino_film/dino_feat_mean_renderDINO.pt",
+        "width": 3072,
+        "arm": "renderDINO",
+        "layers": [
+          0,
+          3,
+          7,
+          11
+        ],
+        "n_crops": 300
+      }
+    ],
+    "existing_pooled_means_compatible": false
+  },
+  "primary_metric": "mean corresponding-patch cosine similarity over the full 768-d patch features (never PCA values)",
+  "different_scene_control": {
+    "enabled": true,
+    "definition": "each sample is also compared against the PREVIOUS valid sample (a different object); the first valid sample has no partner and is blank"
+  },
+  "uncertainty_method": "error bars are +/- 1 standard error of the mean (std with ddof=1 / sqrt(n)) over valid triplets",
+  "pca_usage": "visualisation only; one joint PCA per layer fitted on the concatenated 1e5+1e7+render patch tokens, same basis and same shared display range applied to all three rows",
+  "pca_display_percentiles": [
+    1.0,
+    99.0
+  ],
+  "best_worst": {
+    "feature_type": "centered",
+    "block_index": 6,
+    "pair": "1e5_vs_1e7",
+    "selection": "programmatic, from the saved per-sample CSV",
+    "best": [
+      {
+        "rank": 1,
+        "sample_id": "6115",
+        "similarity": 0.792845
+      },
+      {
+        "rank": 2,
+        "sample_id": "3017",
+        "similarity": 0.787418
+      },
+      {
+        "rank": 3,
+        "sample_id": "3819",
+        "similarity": 0.786842
+      }
+    ],
+    "worst": [
+      {
+        "rank": 1,
+        "sample_id": "4467",
+        "similarity": 0.567105
+      },
+      {
+        "rank": 2,
+        "sample_id": "1995",
+        "similarity": 0.58019
+      },
+      {
+        "rank": 3,
+        "sample_id": "2547",
+        "similarity": 0.587244
+      }
+    ]
+  },
+  "answers": {
+    "best_block_raw_1e5_vs_1e7": {
+      "block_index": 6,
+      "mean": 0.6401571120943953
+    },
+    "best_block_centered_1e5_vs_1e7": {
+      "block_index": 6,
+      "mean": 0.6856418820058997
+    },
+    "best_block_centered_1e5_vs_render": {
+      "block_index": 6,
+      "mean": 0.6570423303834808
+    },
+    "best_block_centered_1e7_vs_render": {
+      "block_index": 6,
+      "mean": 0.7826951474926255
+    },
+    "raw_ranking_1e5_vs_1e7": [
+      6,
+      9,
+      3,
+      12
+    ],
+    "centered_ranking_1e5_vs_1e7": [
+      6,
+      3,
+      9,
+      12
+    ],
+    "centering_changes_ranking": true,
+    "all_intermediate_beat_final_centered": true
+  },
+  "random_seed": 0,
+  "device": "cuda",
+  "torch_version": "2.5.1+cu121"
+}
