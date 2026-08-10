@@ -509,423 +509,39 @@ New analysis from the per-image CSV:
 Note masked_metrics.py is CPU-only, so this ran on the login node -- no job needed.
 Artifacts archived to experiment_results/exp2_verynoisy/.
 
-## Step 20 — E1 centering + pre-launch decisions (2026-08-06)
-
-Pre-launch changes to E1 (DINOv2 FiLM guidance). Still NOT trained; nothing was
-submitted to the scheduler.
-
-**1. Centering the FiLM input (applied).** The FiLM head now receives
-`pooled − mean` instead of the raw pooled DINO vector.
-  - New arch kwarg / config field `dino_feat_mean` -> a .pt path. Loaded by
-    `load_dino_feat_mean()` (fails loudly on a missing file or width mismatch)
-    and registered as a BUFFER in `DINOv2Extractor`; subtracted at the end of
-    `forward`. Zeros when unset, so the state_dict keys are identical either way
-    and "no centering" is a genuine no-op. Being a buffer it is saved into the
-    checkpoint, so a chained resume cannot silently pick up a different mean.
-  - Vectors built by `Deraining_Holo/compute_dino_feat_mean.py` (new), seed 0,
-    300 crops drawn through the arm's OWN dataset class (exact training data
-    path: same random crop, same geometric augs, same loader/value range),
-    TRAIN SPLIT ONLY. Crop sizes drawn in proportion to the progressive
-    schedule's iteration counts -> 92/64/48/96 crops at 128/160/192/256, so the
-    mean matches the crop-size mix the run will actually see.
-  - Measured over those 300 crops:
-        renderDINO  ||mean|| 102.234   mean||residual|| 32.626   offset 90.0%
-        lqDINO      ||mean||  85.628   mean||residual|| 35.401   offset 84.9%
-    (Lower than the 95.6% quoted in the earlier full-frame single-size analysis
-    -- mixing crop sizes adds real variance and lowers the offset share. Not a
-    contradiction, a different sampling distribution.)
-  - FIXED mean, deliberately NOT BatchNorm: the schedule drops the batch to 2 at
-    256px and a two-sample mean is noise, not a mean.
-  - Justification is measured, not assumed: raw pooled features are object-blind
-    in the corrected render<->radar test (d ~ 0.03, n.s. at 128; null at 256);
-    centered they are not (d = +0.25/+8.6 sigma at 128, +0.17/+6.0 sigma at 256).
-  - .pt files committed under experiment_results/exp3_dino_film/ (14 KB each,
-    with full provenance metadata) -- the gitignore exception covers them.
-
-**2. Identity at init RE-VERIFIED after the change -- PASSED.**
-`sanity_check_dino_film.py` gained a second part that builds each arm from its
-ACTUAL yml with the REAL frozen DINOv2 and the REAL mean vector:
-        lqDINO      max|film_on - film_off| = 0.000e+00
-                    max|film_model - baseline| = 0.000e+00
-        renderDINO  max|film_on - film_off| = 0.000e+00
-                    max|film_model - baseline| = 0.000e+00
-plus: extractor output == raw_pooled - feat_mean (max residual 0.00e+00), and
-the buffer is byte-equal to the .pt the yml names. Identity could not break by
-construction (gamma=beta=0 whatever the feature) -- confirmed rather than assumed.
-
-**3. No raw-feature baseline arm.** Deliberate: ~3 GPU-days to confirm an
-already-measured null. Written up as "raw pooled features were measured
-object-blind (d ~ 0.03, n.s.); centering was adopted before training rather than
-ablated". Stated limitation: E1 cannot attribute a gain to centering
-specifically. Optional later row if GPU time frees up.
-
-**4. Both arms run.** lqDINO kept -- matches the published recipes, needs no
-render at inference, and flat-lqDINO vs non-flat-renderDINO would itself be a
-result.
-
-**5. Registered in the pre-registration BEFORE training** (design.md
-"Amendments made before training"):
-  - the DINO signal weakens with crop size in both arms (renderDINO +0.249@128
-    -> +0.167@256; lqDINO +0.183@128 -> null@256), and the schedule's last 96k
-    iterations -- the finest-reconstruction phase whose weights are kept -- run
-    at 256. Recorded as a NAMED CANDIDATE EXPLANATION to be invoked only if E1
-    underperforms. Schedule deliberately NOT changed.
-  - the two arms' d values measure different things (lqDINO = noise robustness
-    within the radar domain; renderDINO = cross-domain correspondence) and are
-    not comparable scores.
-
-**6. Launch drivers created** (did not exist before):
-`train_holo_chain_{lqDINO,renderDINO}.sh`, mirrored from the verynoisy chain
-driver, each with its own experiment dir and Holo_chain_state_* bookkeeping so
-the arms can run concurrently. Partition defaults to a100 (CONTEXT.md's stated
-default; the Exp 2 baseline ran v100). NEITHER HAS EVER BEEN SUBMITTED -- they
-are untested against the scheduler.
-
-Still open: the [SOURCE NEEDED] layer-recipe citation, and `test_holo.py` cannot
-yet load/pass the render for arm-A test-time eval (needed before results, not
-before launch).
-
-## Step 21 — E1 LAUNCHED, both arms (2026-08-06)
-
-Submitted after the Step 20 changes and the isolation audit below.
-
-  job 1771016  holo_renderDINO  a100  -> Holo_DINOv2_renderDINO_verynoisy
-  job 1771017  holo_lqDINO      v100  -> Holo_DINOv2_lqDINO_verynoisy
-
-Both self-chaining (sbatch --dependency=afterany), 23 h walltime, MAX_CHAIN=8,
-300k iters each. Submitted ONCE per arm -- do NOT resubmit; each job queues its
-own successor and basicsr auto-resumes from the latest .state.
-
-Different GPUs per arm is a deliberate user choice (renderDINO carries the
-measured cross-domain signal, so it got the faster card). THESIS NOTE: this
-affects wall-clock only -- same code, seed 100, schedule, data and split -- but
-per-arm training time is not a like-for-like comparison and must be stated.
-
-ISOLATION AUDIT (done before submitting):
-  - experiments_root comes from the yml `name`, so each arm owns
-    experiments/Holo_DINOv2_{arm}_verynoisy + tb_logger/<same name>. Neither
-    existed; neither collides with Holo_Baseline_Restormer{,_verynoisy}.
-    (train.py line ~165 uses opt['name'] for tb, not logger.tb_logger_dir --
-    the config field is inert, but the name-derived path is unique anyway.)
-  - basicsr's mkdir_and_rename archiving runs ONLY when resume_state is None,
-    and only on the arm's own dir => chained resumes never archive, and Exp 2's
-    directory cannot be reached from these runs.
-  - auto-resume scans experiments/<name>/training_states/, keyed on name, so
-    each arm can only resume itself.
-  - experiments/Holo_chain_state_{lqDINO,renderDINO}/ created BEFORE submitting:
-    SLURM opens the --output file at job start, so the in-job mkdir -p would
-    have been too late for job #1 of each chain.
-  - datasets read-only and complete: train_/val_ x clean/verynoisy/
-    renders_blackbg all present at 6101/339.
-  - quota: 285G used of 954G soft on /home/woody; two 300k runs ~90G of
-    checkpoints. Prune both as soon as they finish (Step 19b cost 44G/run).
-  - MAX_CHAIN raised 5 -> 8 so a slower-per-step run cannot silently stop short.
-
-PRE-LAUNCH SMOKE (CPU, both arms): real forward+backward+grad-clip step
-completes; DINO gets 0 gradients (frozen); FiLM head and backbone both get
-gradients; loss finite. Pre-clip grad norms are large (7e6-9e7) but so is the
-Exp 2 baseline's at the same seed (2.1e7; 3e6-2e7 across seeds 0/1/2) -- inherent
-to Restormer at init, not introduced by DINO/FiLM, and the reason upstream clips
-to 0.01.
-
-WATCH: tail experiments/Holo_chain_state_{renderDINO,lqDINO}/slurm_chain_<job>.out
-and experiments/Holo_DINOv2_{arm}_verynoisy/*.log. A crash inside 1800 s writes
-CHAIN_ABORTED and cancels the successor rather than burning the chain.
-
-## Step 22 — E1 CANCELLED: the FiLM head runs away (2026-08-07)
-
-Both arms launched in Step 21 were cancelled by hand ~13:35 CEST after 14 h
-(lqDINO, 73k iters) and 5 h 41 (renderDINO, 44k iters). They were NOT crashing --
-they were training a degenerate model.
-
-  scancel 1771126 1771018   (queued successors, killed FIRST so the afterany
-                             dependency could not launch a replacement)
-  scancel 1771016 1771017   (running jobs)
-
-SYMPTOM. Training loss tracked the Exp 2 baseline almost exactly (41k: renderDINO
-5.40e-2, lqDINO 6.11e-2, baseline 5.43e-2) while validation was catastrophic:
-
-  iter     renderDINO   lqDINO   Exp 2 baseline
-   4000       7.80 dB   3.22 dB      19.62 dB
-  44000       4.73 dB   4.96 dB      ~20.5 dB
-  72000            --   5.61 dB      ~20.7 dB
-
-The noisy input alone is 12.35 dB, so both arms were far worse than doing
-nothing, and flat rather than climbing.
-
-CAUSE (measured from the checkpoints, not inferred). |gamma| and |beta| grow
-monotonically from the start; the model is already broken by iter 2000:
-
-  lqDINO   iter   |gamma|max  |beta|max  film W_last norm  val PSNR
-            2000       30.72       7.24             9.54    -74.3
-           10000      125.44      33.94            17.23   -138.7
-           40000      255.68      64.02            23.08   -167.1
-           72000      325.50      88.37            24.94   -172.4
-
-(1+gamma)*F+beta with gamma ~325 is a ~326x feature amplification; output range
-at 256px reached +/-2.4e9. renderDINO is the same failure, milder: gamma 4.6-7.3,
-output range +/-700.
-
-WHY TRAIN LOOKED FINE. Stage 1 trains at 128px; validation runs at native 256.
-The network co-adapted to a knife-edge solution that only survives its training
-crop size. Measured on lqDINO@72k, one val image:
-    128 crop, FiLM ON  -> 20.55 dB   (healthy)
-    256 full, FiLM ON  -> -172.4 dB  (garbage)
-    256 full, FiLM OFF ->   -1.4 dB  (backbone alone is also distorted -- it has
-                                      co-adapted to compensate for huge gamma)
-
-WHY NOTHING BOUNDED IT. `use_grad_clip: true` clips to 0.01 over all 28.5M
-params, but AdamW normalises per-parameter, so a uniformly rescaled gradient
-yields nearly the same update -- the clip does essentially nothing to constrain
-the FiLM head. Nothing in the design bounds gamma. This is a design flaw in the
-FiLM block, independent of which image DINO looks at (both arms show it).
-
-ON THE CENTERING CHANGE (Step 20). Probably not the cause, and deliberately not
-claimed as ruled out. Centering SHRINKS the FiLM input (norm ~30 residual vs
-~110 raw), which would if anything reduce gamma for the same weights; and both
-arms are centered yet differ ~70x in gamma. The mechanism points at unbounded
-gamma under Adam. Confirming this would need a training run, which has not been
-done.
-
-VERIFICATION GAP (own it). Step 20/21 checks covered identity at t=0 and a single
-train step. NOTHING tested stability OVER training. A few hundred iterations
-logging |gamma|max would have caught this in minutes and saved ~20 GPU-hours.
-Any future launch gate must include a short run that watches the modulation
-magnitude, not just an init-time identity check.
-
-STATE ON DISK. Kept for now, deliberately: experiments/Holo_DINOv2_lqDINO_verynoisy
-(24 G) and .../renderDINO_verynoisy (15 G), plus full logs. CHAIN_ABORTED +
-WHY_ABORTED.txt written into both chain-state dirs so a resubmit cannot silently
-resume a broken run. Prune both once the fix is settled and the evidence is
-written up.
-
-NEXT (one change, not yet implemented): bound the FiLM modulation -- gamma through
-a tanh (and/or a separate smaller LR / stronger weight decay for the FiLM head) --
-add a |gamma|max diagnostic to the training log, verify over a few hundred iters,
-then relaunch as a FRESH experiment dir. The Step 20 pre-registration stands
-otherwise; this is a stability fix, not a change to what is being studied.
-
-## Step 23 — FiLM stability fix + a launch gate (2026-08-07)
-
-Response to the Step 22 failure. ONE substantive change to the model; the rest is
-observability and a gate so a broken run can never again consume GPU-days
-unnoticed. The Step 20 pre-registration is otherwise unchanged -- what is being
-studied (which image DINO looks at) is untouched.
-
-**1. BOUNDED MODULATION (the fix).** `FiLMHead.forward` now squashes both
-outputs: `gamma = gamma_scale * tanh(raw)`, `beta = beta_scale * tanh(raw)`,
-with `film_gamma_scale = film_beta_scale = 0.5` in both configs, so
-`(1+gamma)` is confined to [0.5, 1.5].
-
-Why bounding and not something else. FiLM has a SCALE DEGENERACY: rescaling a
-feature map and letting later layers undo it leaves the loss unchanged, so gamma
-sits on a flat direction with no restoring force. AdamW then walks it outward at
-~lr per step. The two guards already in the recipe do essentially nothing --
-grad-clip is near-invariant under Adam (which normalises per-parameter), and
-decoupled weight decay contributes lr*wd = 3e-8/step. Alternatives considered and
-rejected as primary: a smaller FiLM LR only SLOWS the drift (300k iters is a long
-time); stronger weight decay sets a large equilibrium rather than a bound;
-normalising the FiLM input improves conditioning but leaves the degeneracy.
-Bounding removes the failure mode by construction.
-
-0.5 is a judgement call, not a measured optimum, and is written up as such: 0.1
-would be so weak that a null result is uninterpretable, 1.0 permits gamma = -1
-(zeroing a channel outright). tanh(0) = 0, so the zero-init identity survives
-exactly.
-
-**2. OBSERVABILITY.** `RestormerDINO.forward` records detached
-`film_g_absmax / film_b_absmax / film_g_std` (std ACROSS the batch -- near zero
-means gamma is a constant rescale, not input-dependent guidance; the failed
-lqDINO run was 71% constant). New model `ImageCleanModelDINO` (subclass of
-ImageCleanModel, new file -- basicsr core still unmodified) copies them into
-log_dict so they reach the log and TensorBoard every print_freq.
-`ImageCleanModelRender` now inherits from it. lqDINO's `model_type` changed
-`ImageCleanModel -> ImageCleanModelDINO`; training behaviour is identical.
-
-**3. LAUNCH GATE (the part that actually matters).** `Holo_DINOv2_{arm}_GATE.yml`
-(generated by `make_gate_configs.py` FROM the arm config, so they cannot drift)
-plus `gate_{arm}.sh`: 4000 iters, val every 1000, ~30-45 min, own experiment dir,
-no chaining. PASS = val PSNR >= 18 dB at iter 4000. Reference points: the Exp 2
-baseline hit 19.62 dB at its first validation; the two broken arms were at 3.22
-and 7.80 dB. This gate would have caught Step 22 in half an hour rather than
-~20 GPU-hours. The gate script wipes its own dir first so it can never resume a
-previous attempt, and prints an explicit PASS/FAIL verdict.
-
-**4. v2 EXPERIMENT NAMES.** Both arms renamed to
-`Holo_DINOv2_{arm}_verynoisy_v2` (+ matching tb_logger and
-`Holo_chain_state_{arm}_v2`). NECESSARY, not cosmetic: basicsr auto-resumes from
-the highest .state under `experiments/<name>/`, and the v1 dirs are full of the
-broken run's states. Without the rename a relaunch would silently continue the
-failed run. The v1 dirs are left intact as evidence.
-
-VERIFIED (CPU, before any GPU time):
-  - sanity_check_dino_film.py ALL PASS, including a new bound check that drives
-    the FiLM head with weights ~N(0,50) and features scaled to 1e6:
-    worst |gamma| = 0.500000, worst |beta| = 0.500000. The runaway is now
-    impossible by construction, not by hoping the optimizer behaves.
-  - zero-init identity still exact for both arms with real DINOv2 + real means:
-    max|film_on - film_off| = max|film_model - baseline| = 0.000e+00.
-  - end-to-end through basicsr create_model + 3 real optimize_parameters steps:
-    both arms log film_g_absmax (0.017 / 0.013), within bound, film_g_std > 0.
-
-NOT YET RUN: the gates. Nothing chains to 300k until a gate passes.
-
-## Step 24 — Both gates FAIL: bounding stopped the explosion, not the failure (2026-08-07)
-
-Gate jobs 1771540 (renderDINO, a100) and 1771541 (lqDINO, v100), 4000 iters each,
-~35 min. Both rc=0, no crash. Both FAIL the 18 dB criterion.
-
-  arm          val@1k   val@2k   val@3k   val@4k   Exp2 baseline @4k
-  renderDINO   15.12    14.00    12.88    14.82        19.62
-  lqDINO       12.68     7.93     7.15     6.69        19.62
-
-The bound HELD exactly as designed -- max |gamma| 0.49992 / 0.49998, no ±2e9
-outputs, no divergence. That failure mode is gone. But the model is still worse
-than the baseline, and lqDINO gets steadily WORSE over the run.
-
-WHAT THE gamma LOG SHOWS (this is why the logging was added):
-  |gamma|max reaches ~0.31 by iter 200, ~0.48 by iter 400, and is pinned at
-  0.4995-0.4999 from ~iter 1000 to the end. It saturates the tanh rail almost
-  immediately and stays there.
-  film_g_std (input-dependence) DECAYS: renderDINO 0.073 @400 -> 0.011 @4000.
-  So gamma degenerates into a near-CONSTANT +/-0.5 mask -- and once tanh is
-  saturated its gradient vanishes, so the head can no longer modulate on the
-  input even in principle. Worst of both worlds: a large fixed multiplicative
-  distortion the backbone must spend its capacity undoing.
-
-READING (not softened). Bounding was necessary and it worked, but it was not
-sufficient. The real problem is a RACE: at iter 200 the backbone is still random,
-and the fastest available loss reduction for a randomly-initialised FiLM head is
-the scale degeneracy. It takes it, saturates, and the backbone spends the rest of
-training compensating for a constant distortion. Capping the magnitude only caps
-how bad the distortion is; it does not stop the head from going straight to it.
-
-Structural note for the thesis: FiLM/adapter conditioning in the literature
-(ControlNet, T2I-Adapter) attaches to a PRETRAINED, frozen or near-frozen
-backbone. Here the backbone is trained from scratch simultaneously with the
-conditioning head, which is what creates the race. That mismatch is the honest
-framing of these two failures.
-
-No GPU is running. Nothing was chained. Cost of this iteration: ~35 min x 2,
-which is the point of the gate.
-
-## Step 25 — Attempt 3: slow + late FiLM (2026-08-07)
-
-User's call after Step 24: keep the pre-registered design (from scratch, 300k)
-and fix the RACE rather than redesign. Two mechanisms, one idea -- make FiLM a
-slow, late, bounded correction instead of a fast, early, saturating one.
-
-**1. WARMUP + RAMP (`train.film_warmup_iters: 5000`, `film_ramp_iters: 5000`).**
-gamma/beta are multiplied by a ramp factor: 0 for the first 5k iters, linear
-0->1 over the next 5k, full from 10k. At ramp 0 the arch SKIPS the DINO/FiLM
-block entirely, so the head receives no gradient and stays at its zero init
-while the backbone trains. The baseline reaches ~19.6 dB by 4k on its own, so
-FiLM now switches on against an established backbone rather than a random one.
-That is the actual cause of both previous failures: with a random backbone the
-fastest loss reduction available to a random FiLM head is FiLM's scale
-degeneracy, so it went straight there and saturated.
-
-Free side effect, deliberately exploited: because ramp=0 persists into
-validation, the gate's early validations ARE the plain baseline. Every gate now
-carries its own control.
-
-**2. RAW SCALE (`network_g.film_raw_scale: 0.01`).** Multiplies the pre-tanh
-activation, so the modulation moves ~100x slower per optimizer step and needs
-~100x longer to reach the tanh rail. This is an effective learning rate ON THE
-MODULATION.
-
-Why implemented in the arch and NOT as an optimizer param group: basicsr's
-CosineAnnealingRestartCyclicLR computes
-`lr = eta_min + w*0.5*(base_lr - eta_min)*(1+cos(...))` with an ABSOLUTE,
-group-shared eta_min. Our period-1 eta_min is 3e-4, so a second group with
-base_lr 1e-5 would be annealed UPWARD from 1e-5 to 3e-4 across the first 92k
-iters -- the opposite of the intent. A separate optimizer kept out of
-self.optimizers would dodge the scheduler but would not be saved in the resume
-state, so its Adam moments would reset on every chained job. The arch-side scale
-has neither problem.
-
-The 0.5 tanh bound from Step 23 stays as the hard safety cap.
-
-**GATE EXTENDED to 16000 iters** (was 4000) with val every 2000: warmup 5k +
-ramp 5k means FiLM is only fully on from 10k, so the old 4k gate would have
-tested nothing. 16k gives ~6k iterations of fully-on FiLM. ~2 h a100 / ~3 h v100.
-
-New PASS criteria (both required):
-  1. final val PSNR >= 18 dB
-  2. final val PSNR >= (best warmup val) - 1 dB
-(2) is the one that matters and asks exactly the question both previous attempts
-failed: does switching FiLM on make the model WORSE than the baseline it was
-already achieving?
-
-VERIFIED (CPU, both arms, before GPU time):
-  - ramp schedule: 0 at iter 1/4999, 0.5 at 7500, 1.0 from 10000.
-  - during warmup: film_ramp=0 and ZERO FiLM parameters receive gradient.
-  - during warmup the forward is BIT-IDENTICAL to apply_film=False
-    (max diff 0.000e+00) -- warmup really is the baseline, not an approximation.
-  - after ramp: film_ramp=1.0, gamma logged and within bound.
-  - sanity_check_dino_film.py still all-PASS (identity at init unchanged).
-
-Gates submitted: jobs to follow. Nothing chains to 300k until both pass.
-
-## Step 26 — Attempt 3 gates: BOTH fail. Warmup only delayed the runaway (2026-08-09)
-
-Jobs 1771676 (renderDINO, a100, 2h02) and 1771677 (lqDINO, v100, 3h05), 16k iters.
-
-  iter    renderDINO   lqDINO      phase
-   2000      17.847    17.393      warmup, FiLM OFF = baseline
-   4000      19.293    19.324      warmup, FiLM OFF = baseline
-   6000      19.558    19.417      ramping
-   8000      19.328    19.377      ramping
-  10000      20.203    19.447      FiLM full
-  12000      18.691    17.619      FiLM full
-  14000      18.119    17.404      FiLM full
-  16000      20.002    17.599      FiLM full
-
-lqDINO FAILS outright: 17.60 final vs 19.32 from its own warmup baseline, i.e.
-switching FiLM on costs 1.7 dB. |gamma| reached 99% of the 0.5 bound by 14k.
-
-renderDINO initially read PASS -- and that verdict was WRONG. The endpoint value
-was fine (20.00 vs 19.29 baseline) but |gamma| was mid-explosion:
-
-  iter    13,000  |g|max=1.19e-03   ( 0.2% of bound)
-  iter    14,000  |g|max=1.18e-02   ( 2.4%)
-  iter    15,000  |g|max=8.10e-02   (16.2%)
-  iter    16,000  |g|max=2.08e-01   (41.7%)
-
-~10x per 1000 iterations, 254x over the second half of the run. The gate stopped
-at the knee of the curve. Extrapolated, renderDINO reaches the rail within ~2k
-more iterations -- it is on exactly lqDINO's trajectory, delayed ~5k iters by the
-warmup. A 300k run would certainly have degraded.
-
-GATE BUGS FOUND AND FIXED (both mine):
-  1. the verdict tested only the FINAL val PSNR, so a run one step from the cliff
-     passed. Added criterion [3]: |gamma|max in the final quarter must be < half
-     the bound AND must not have grown >20x over the run. Under the corrected
-     criteria BOTH arms FAIL (renderDINO on [3], lqDINO on all three).
-  2. iteration labels were off by one validation -- basicsr runs an extra
-     end-of-training validation that duplicates the last one, so the table
-     showed a nonexistent "18000" row. Now de-duplicated.
-  Verdict logic moved out of the sbatch heredoc into Deraining_Holo/gate_verdict.py
-  so it can be re-run against any finished gate log.
-
-DIAGNOSIS. gamma grows GEOMETRICALLY once FiLM switches on (~10x/1000 iters),
-far faster than the linear/quadratic drift that raw parameter growth under Adam
-would produce. That is positive feedback: as the modulation grows the backbone
-adapts to depend on it, which increases the gradient pushing it further. The
-scale degeneracy is not merely unconstrained, it is self-reinforcing, and it is
-self-reinforcing precisely BECAUSE the backbone is free to co-adapt.
-
-CONCLUSION (three attempts, consistent): this cannot be fixed by tuning bounds,
-learning rates or schedules while the backbone trains from scratch alongside the
-conditioning head. Bounding capped the damage; warmup delayed the onset; neither
-removes the feedback loop. The remaining lever is to remove the backbone's
-freedom to co-adapt -- i.e. attach FiLM to the TRAINED Exp 2 backbone
-(net_g_292000.pth), frozen or at a much lower LR, which is also how FiLM/adapter
-conditioning is done in the literature (ControlNet, T2I-Adapter). That is a
-pre-registration change and is the user's call.
-
-Cost so far: 3 gate rounds, ~10 GPU-hours total. The gate is doing its job -- the
-alternative was three 3-GPU-day runs.
+## Steps 20-26 — E1 DINOv2-FiLM guidance: ATTEMPTED AND ABANDONED (2026-08-06 - 08-09)
+
+E1 added a frozen DINOv2 ViT-B/14 to Restormer as FiLM modulation at the
+bottleneck and the three decoder stages, in two arms (lqDINO = DINO sees the
+noisy input; renderDINO = DINO sees the aligned render). It was launched,
+cancelled, fixed and relaunched three times, and failed every time:
+
+  - Attempt 1: FiLM runaway, |gamma| reached 325. Trained 73k iterations with
+    nothing logging the modulation.
+  - Attempt 2: gamma/beta bounded + modulation logging + a 4k launch gate.
+    Both arms FAILED the gate (14.8 / 6.7 dB vs the 19.6 dB baseline); gamma
+    pinned at the bound.
+  - Attempt 3: FiLM warmup/ramp + raw_scale, 16k gate. Warmup delayed the
+    runaway but did not prevent it. Both arms failed again.
+
+Total cost ~10 GPU-hours across three gate rounds -- the gate is what stopped
+this becoming three 3-GPU-day runs.
+
+The E1 training code (RestormerDINO, FiLMHead, the two model wrappers, the four
+configs, the chain/gate launchers), the pre-registration design.md and the
+full E1_DINO_report.md write-up were REMOVED from this branch. The complete E1
+tree, including all three attempts and the detailed per-step log that used to
+occupy this space, is preserved on the `dino_prior` branch.
+
+What survives here is the DINO *analysis* line, which is unaffected by the
+training failure: the frozen extractor (basicsr/models/archs/restormer_dino_arch.py),
+the render dataset, and dino_analysis_phases/ (Phase 0/1/2). Those measure
+whether a DINO prior carries usable signal at all -- the question E1 assumed
+the answer to. See dino_analysis_phases/DINO_ANALYSIS_DEVLOG.md.
+
+NOTE: this log is otherwise append-only. This entry is a deliberate exception --
+418 lines of E1 detail were compressed here rather than left in place. Use
+`git log dino_prior -- DEVLOG.md` to read the original.
 
 ## Step 27 — CORRECTION: the ray counts were documented backwards (2026-08-09)
 
@@ -950,9 +566,10 @@ degraded -> clean using the actual files, so no result, metric or conclusion
 changes. Exp 1, Exp 2 and all of E1 are unaffected. What IS affected is anything
 written up describing the data, including thesis text.
 
-Corrected in: CONTEXT.md (problem statement, with the reasoning), HANDOVER.md
-(dataset section + the render<->radar description), design.md (render<->radar
-test), render_radar_similarity.py (two comments), and the data example figure
-experiment_results/exp3_dino_film/data_example_verynoisy_vs_clean.png.
+Corrected in: CONTEXT.md (problem statement, with the reasoning) and the data
+example figure, now at
+experiment_results/exp2_verynoisy/figures/data_example_verynoisy_vs_clean.png.
+The other files corrected at the time (HANDOVER.md, design.md,
+render_radar_similarity.py) were removed with E1; see the Steps 20-26 entry.
 DEVLOG Step 1's original line is left as written -- this entry is the correction,
 since the log is append-only.

@@ -128,12 +128,17 @@ All config work happened on fived08; the actual first completed training run was
 - [x] Verynoisy checkpoints pruned (Step 19b) — kept net_g_292000.pth (best) + net_g_128000.pth only;
       all other .pth and ALL training states deleted (44 GB -> 201 MB). This run can no longer be resumed.
 - [ ] Over-smoothing is the headline weakness: prediction retains only ~22% of GT high-frequency energy
-- [ ] DINOv2 injection into bottleneck (July)
+- [x] E1 (DINOv2 FiLM injection) ATTEMPTED AND ABANDONED — failed 3x, code removed from this
+      branch, preserved on `dino_prior`. See DEVLOG "Steps 20-26".
+- [ ] DINO prior analysis (Phase 0/1/2 done, Phase 3 open) — dino_analysis_phases/
 
 Config naming convention:
   Holo_Baseline_Restormer.yml       — pure Restormer, no DINOv2
   Holo_Baseline_Restormer_test.yml  — inference-only config (basicsr/test.py)
-  Holo_DINOv2_Restormer.yml         — DINOv2 cross-attention injection (July)
+  Holo_DINOv2_renderDINO_Restormer.yml
+                                    — NOT a training config any more. Data-only spec
+                                      (datasets.val + five dino_* keys) read by
+                                      dino_analysis_phases/ as its default --opt.
 
 Manual commands log: COMMANDS.md at repo root — all commands to run by hand are recorded there.
 
@@ -147,26 +152,27 @@ Dataset note: TWO datasets are now in play.
                                 no test split. train_/val_verynoisy built as symlinks from
                                 splits/*.txt (see DEVLOG Step 19).
 
-Last change: 2026-08-07 — E1 CANCELLED, both arms broken (DEVLOG Step 22): FiLM runaway, |gamma|->325,
-val PSNR 3-8 dB vs baseline 19.6 dB, broken by iter 2000. Needs a FiLM stability fix before relaunch.
-Prior (2026-08-06): E1 LAUNCHED, both arms (DEVLOG Step 21): job 1771016 renderDINO on a100,
-job 1771017 lqDINO on v100, self-chaining to 300k. Earlier the same day: E1 CENTERING added + pre-launch decisions settled (DEVLOG Step 20).
-The FiLM head is now fed `pooled − mean` (fixed per-arm mean over 300 training crops, registered
-buffer, config field `dino_feat_mean`); identity-at-init re-verified with real DINOv2 + real means
-(max diff 0.000e+00, both arms); both arms confirmed; no raw-feature arm (predicted null, saves
-~3 GPU-days); crop-size signal decay registered in advance as a candidate explanation if E1
-underperforms; per-arm self-chaining launch scripts created. STILL NOT TRAINED — nothing submitted.
+Last change: 2026-08-10 — E1 REMOVED from this branch (branch `dino_e2`). The DINOv2-FiLM
+training experiment failed three times and is not being continued; its arch, model wrappers,
+configs, launchers, gate scripts, design.md and E1_DINO_report.md were deleted here and are
+preserved on the `dino_prior` branch. What was KEPT, because the DINO analysis line depends
+on it and it is reusable for the next experiment:
+  basicsr/models/archs/restormer_dino_arch.py  — stripped to the frozen extractor only
+                                                 (DINOv2Extractor, dino_preprocess,
+                                                 dino_denormalize); no FiLM, no RestormerDINO
+  basicsr/data/paired_image_uint16_render_dataset.py — radar/render/GT triplet loader
+  Holo_DINOv2_renderDINO_Restormer.yml         — rewritten as a data-only spec
+  dino_analysis_phases/                        — UNTOUCHED, byte for byte
+Verified after the removal: Phase 1 and Phase 2 both run end-to-end on CPU against the real
+DINOv2 checkpoint, and Phase 1 still reproduces the Block 6 result.
 
-Prior (2026-08-05): E1 (DINOv2 FiLM guidance) built, wired, and VERIFIED but NOT trained.
-Two arms (lqDINO, renderDINO), frozen DINOv2 ViT-B/14, FiLM at bottleneck+decoder, zero-init identity.
-Offline DINO cache wired + fails loudly; weights verified genuinely loaded; input/alignment/pipeline
-verified with real images. Feature-separation analysis: pooled DINO feature is ~95% shared offset,
-weak object signal after centering. Pending: centering decision, which arm(s), test-time render eval.
-** For the full picture read HANDOVER.md at repo root ** (this file is the project primer; HANDOVER.md
-is the E1/DINO handover; DEVLOG.md is the step log up to Step 19c).
+Prior (2026-08-10): Phase 2 (DINO prior source: 1e5 radar vs render) complete after the
+block/feature alignment fix. Phase 1: Block 6 leads, Block 9 does not generalise (339/339
+val triplets). See dino_analysis_phases/DINO_ANALYSIS_DEVLOG.md and the per-phase devlogs.
 
 Prior (2026-07-21): Verynoisy baseline complete (DEVLOG Step 19) — full 300k, peak val 22.446 dB @ 292k;
-test 22.405 dB full / 18.313 dB masked; over-smoothing (HF ratio 0.216) is the weakness E1 targets.
+test 22.405 dB full / 18.313 dB masked; over-smoothing (HF ratio 0.216) is the weakness the
+DINO line targets.
 
 ## Known Issues (must fix before smoke test)
 1. ~~uint16 → uint8 truncation~~ FIXED via imfrombytes_uint16 + Dataset_PairedImage_uint16
@@ -174,6 +180,12 @@ test 22.405 dB full / 18.313 dB masked; over-smoothing (HF ratio 0.216) is the w
 3. ~~No val split~~ FIXED — 90/10 split, seed=42, symlink dirs created
 
 ## What NOT to do
-- Do not add DINOv2 injection yet
+- Do not resurrect E1 FiLM guidance without a reason the three recorded failures do not
+  already cover (DEVLOG "Steps 20-26"; full detail on the `dino_prior` branch)
+- Do not touch dino_analysis_phases/ — Phase 0/1/2 results are committed and Phase 2
+  asserts against phase1_metadata.json
 - Do not change the loss function
-- Do not modify anything inside basicsr/ beyond the already-committed uint16 loader
+- Inside basicsr/, the only project-owned files are the uint16 loader
+  (utils/img_util.py + data/paired_image_uint16*.py) and
+  models/archs/restormer_dino_arch.py (frozen extractor). Everything else is stock
+  Restormer — add new archs/models/datasets as NEW files; the registry auto-scans them.

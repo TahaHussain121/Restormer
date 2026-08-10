@@ -2,18 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python /scratch/claude-214675/-home-woody-iwnt-iwnt174h-thesis-dino-code-Restormer/be8044d7-5187-45e6-a598-fb3ec623f810/scratchpad/gvar.py)",
-      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python Deraining_Holo/make_gate_configs.py)",
-      "Bash(bash -n Deraining_Holo/gate_renderDINO.sh)",
-      "Bash(bash -n Deraining_Holo/gate_lqDINO.sh)",
       "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python -c \"import matplotlib; print\\('matplotlib', matplotlib.__version__\\)\")",
       "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python -c ' *)",
       "Bash(sed -n '/def get_intermediate_layers/,/return/p;/_get_intermediate_layers_not_chunked/,/^    def /p' /home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub/hub/facebookresearch_dinov2_main/dinov2/models/vision_transformer.py | head -60)",
-      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis/visualize_dino_spatial_pca.py --sample-id 0196 --device cpu)",
-      "Bash(time /home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis/visualize_dino_spatial_pca.py --sample-id 0196 --device cpu --compute-centered --compute-layer-means --num-mean-samples 150)",
-      "Bash(time /home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis/visualize_dino_spatial_pca.py --sample-id 0196 --device cpu --compute-centered)",
-      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis/visualize_dino_spatial_pca.py --sample-id 0196 --device cpu --compute-centered)",
-      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python -m py_compile dino_analysis/visualize_dino_spatial_pca.py)",
-      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis/phase1/analyze_dino_spatial_consistency.py --device cpu --max-samples 4)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/visualize_dino_spatial_pca.py --sample-id 0196 --device cpu)",
+      "Bash(time /home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/visualize_dino_spatial_pca.py --sample-id 0196 --device cpu --compute-centered --compute-layer-means --num-mean-samples 150)",
+      "Bash(time /home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/visualize_dino_spatial_pca.py --sample-id 0196 --device cpu --compute-centered)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/visualize_dino_spatial_pca.py --sample-id 0196 --device cpu --compute-centered)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python -m py_compile dino_analysis_phases/visualize_dino_spatial_pca.py)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase1/analyze_dino_spatial_consistency.py --device cpu --max-samples 4)",
       "Bash(sinfo.tinygpu -o \"%.10P %.6a %.6D %.6t %N\")",
       "Bash(squeue.tinygpu -t PD -o \"%.10P\" -h)",
       "Bash(squeue -M tinygpu -t PD -o \"%.10P\" -h)",
@@ -21,11 +18,12 @@
       "Bash(squeue.tinygpu -p a100 -t R -h -o \"%L\")",
       "Bash(sort -t: -k1)",
       "Bash(squeue.tinygpu -p a100 -t PD -h)",
-      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python -m py_compile dino_analysis/phase2/analyze_dino_prior_source.py)",
-      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis/phase2/analyze_dino_prior_source.py --help)",
-      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis/phase2/analyze_dino_prior_source.py --device cpu --max-samples 5)",
-      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis/phase2/analyze_dino_prior_source.py --device cpu --max-samples 6)",
-      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis/phase1/analyze_dino_spatial_consistency.py --help)"
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python -m py_compile dino_analysis_phases/phase2/analyze_dino_prior_source.py)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase2/analyze_dino_prior_source.py --help)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase2/analyze_dino_prior_source.py --device cpu --max-samples 5)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase2/analyze_dino_prior_source.py --device cpu --max-samples 6)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase1/analyze_dino_spatial_consistency.py --help)",
+      "Bash(awk '$1!=0||$2!=0{print \"  CONTENT CHANGED:\",$3} END{print \"  checked\",NR,\"paths\"}')"
     ],
     "additionalDirectories": [
       "/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub/hub/facebookresearch_dinov2_main/dinov2/models"
