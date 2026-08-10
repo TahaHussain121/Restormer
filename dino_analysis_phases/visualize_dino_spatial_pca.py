@@ -93,15 +93,15 @@ if _REPO not in sys.path:
 
 from sklearn.decomposition import PCA
 
-from basicsr.data.paired_image_uint16_render_dataset import (
+from basicsr.data.radar_render_triplet_dataset import (
     Dataset_PairedImage_uint16_Render)
-from basicsr.models.archs.restormer_dino_arch import (
+from basicsr.models.archs.dinov2_feature_extractor import (
     DINOv2Extractor, dino_preprocess, dino_denormalize)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, 'outputs')
 DEFAULT_OPT = os.path.join(
-    _REPO, 'Deraining_Holo', 'Options', 'Holo_DINOv2_renderDINO_Restormer.yml')
+    _REPO, 'Deraining_Holo', 'Options', 'DINO_analysis_data.yml')
 DEFAULT_MEANS = os.path.join(HERE, 'dino_spatial_layer_means.pt')
 POOLED_MEANS = [
     os.path.join(_REPO, 'Deraining_Holo', 'experiment_results', 'exp3_dino_film',
@@ -172,7 +172,7 @@ def batch_to_dino_inputs(batch, img_size, mean, std):
 
     1e5 / 1e7: uint16 PNG /65535 -> [1,1,H,W] in [0,1] -> grayscale replicated to
       3 channels, resized to img_size, ImageNet-normalised. This is the lqDINO
-      path (basicsr.../restormer_dino_arch.dino_preprocess), unchanged. No
+      path (basicsr.../dinov2_feature_extractor.dino_preprocess), unchanged. No
       colormap is applied before DINO.
     render: 8-bit PNG -> [0,1] 3-channel -> same resize + ImageNet norm. This is
       the renderDINO path, unchanged.
@@ -743,7 +743,7 @@ def main():
         'sample_id': sample_id,
         'split': args.split,
         'dataset_index': idx,
-        'pairing_source': 'basicsr.data.paired_image_uint16_render_dataset.'
+        'pairing_source': 'basicsr.data.radar_render_triplet_dataset.'
                           'Dataset_PairedImage_uint16_Render (val phase, no crop)',
         'path_1e5_very_noisy_radar': paths['1e5'],
         'path_1e7_clean_radar': paths['1e7'],
@@ -768,7 +768,7 @@ def main():
         'preprocessing': {
             'radar_1e5_1e7': 'uint16 PNG / 65535 -> [0,1] 1ch -> replicate to 3ch '
                              '-> bilinear resize to 224 -> ImageNet normalise '
-                             '(basicsr restormer_dino_arch.dino_preprocess)',
+                             '(basicsr dinov2_feature_extractor.dino_preprocess)',
             'render': '8-bit PNG -> [0,1] 3ch -> bilinear resize to 224 -> '
                       'ImageNet normalise (same function)',
             'colormap_before_dino': False,

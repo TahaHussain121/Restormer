@@ -534,8 +534,12 @@ tree, including all three attempts and the detailed per-step log that used to
 occupy this space, is preserved on the `dino_prior` branch.
 
 What survives here is the DINO *analysis* line, which is unaffected by the
-training failure: the frozen extractor (basicsr/models/archs/restormer_dino_arch.py),
-the render dataset, and dino_analysis_phases/ (Phase 0/1/2). Those measure
+training failure: the frozen extractor (basicsr/models/archs/dinov2_feature_extractor.py,
+renamed from restormer_dino_arch.py once the FiLM half was stripped), the
+triplet dataset (basicsr/data/radar_render_triplet_dataset.py, renamed from
+paired_image_uint16_render_dataset.py), the data-only config
+(Deraining_Holo/Options/DINO_analysis_data.yml, renamed from
+Holo_DINOv2_renderDINO_Restormer.yml), and dino_analysis_phases/. Those measure
 whether a DINO prior carries usable signal at all -- the question E1 assumed
 the answer to. See dino_analysis_phases/DINO_ANALYSIS_DEVLOG.md.
 

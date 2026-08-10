@@ -135,8 +135,7 @@ All config work happened on fived08; the actual first completed training run was
 Config naming convention:
   Holo_Baseline_Restormer.yml       — pure Restormer, no DINOv2
   Holo_Baseline_Restormer_test.yml  — inference-only config (basicsr/test.py)
-  Holo_DINOv2_renderDINO_Restormer.yml
-                                    — NOT a training config any more. Data-only spec
+  DINO_analysis_data.yml            — NOT a training config. Data-only spec
                                       (datasets.val + five dino_* keys) read by
                                       dino_analysis_phases/ as its default --opt.
 
@@ -156,15 +155,29 @@ Last change: 2026-08-10 — E1 REMOVED from this branch (branch `dino_e2`). The 
 training experiment failed three times and is not being continued; its arch, model wrappers,
 configs, launchers, gate scripts, design.md and E1_DINO_report.md were deleted here and are
 preserved on the `dino_prior` branch. What was KEPT, because the DINO analysis line depends
-on it and it is reusable for the next experiment:
-  basicsr/models/archs/restormer_dino_arch.py  — stripped to the frozen extractor only
-                                                 (DINOv2Extractor, dino_preprocess,
-                                                 dino_denormalize); no FiLM, no RestormerDINO
-  basicsr/data/paired_image_uint16_render_dataset.py — radar/render/GT triplet loader
-  Holo_DINOv2_renderDINO_Restormer.yml         — rewritten as a data-only spec
-  dino_analysis_phases/                        — UNTOUCHED, byte for byte
-Verified after the removal: Phase 1 and Phase 2 both run end-to-end on CPU against the real
-DINOv2 checkpoint, and Phase 1 still reproduces the Block 6 result.
+on it and it is reusable for the next experiment — all three RENAMED after the E1 strip, so
+the filename now states the function rather than the dead experiment:
+  basicsr/models/archs/dinov2_feature_extractor.py  — was restormer_dino_arch.py. Loads the
+                                                 frozen DINOv2 offline (strict=True) and owns
+                                                 dino_preprocess / dino_denormalize. Holds no
+                                                 Restormer subclass and registers nothing, so
+                                                 it deliberately does NOT end in _arch.py.
+  basicsr/data/radar_render_triplet_dataset.py — was paired_image_uint16_render_dataset.py.
+                                                 Aligned 1e5 / 1e7 / render triplets; keeps the
+                                                 _dataset.py suffix so the registry scans it.
+  Deraining_Holo/Options/DINO_analysis_data.yml — was Holo_DINOv2_renderDINO_Restormer.yml.
+                                                 Data-only spec, not a training config.
+  dino_analysis_phases/                        — only the 3 import lines and 3 provenance
+                                                 strings in visualize_dino_spatial_pca.py were
+                                                 touched, for the renames. No logic changed.
+Verified after the removal and after the renames: Phase 1 and Phase 2 both run end-to-end on
+CPU against the real DINOv2 checkpoint, and Phase 1 still reproduces the Block 6 result.
+
+NOTE: metadata JSONs already committed under dino_analysis_phases/*/outputs/ record the OLD
+paths in their "config_read" / "pairing_source" fields. That is correct — they are provenance
+records of what those runs actually read, and were deliberately not rewritten. Phase 2's
+consistency check compares dino_model / dino_checkpoint / dino_hub_source only, so the stale
+path strings do not affect it.
 
 Prior (2026-08-10): Phase 2 (DINO prior source: 1e5 radar vs render) complete after the
 block/feature alignment fix. Phase 1: Block 6 leads, Block 9 does not generalise (339/339
@@ -186,6 +199,7 @@ DINO line targets.
   asserts against phase1_metadata.json
 - Do not change the loss function
 - Inside basicsr/, the only project-owned files are the uint16 loader
-  (utils/img_util.py + data/paired_image_uint16*.py) and
-  models/archs/restormer_dino_arch.py (frozen extractor). Everything else is stock
-  Restormer — add new archs/models/datasets as NEW files; the registry auto-scans them.
+  (utils/img_util.py + data/paired_image_uint16_dataset.py),
+  data/radar_render_triplet_dataset.py and models/archs/dinov2_feature_extractor.py.
+  Everything else is stock Restormer — add new archs/models/datasets as NEW files;
+  the registry auto-scans *_arch.py / *_model.py / *_dataset.py.

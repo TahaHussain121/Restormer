@@ -23,10 +23,12 @@
       "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase2/analyze_dino_prior_source.py --device cpu --max-samples 5)",
       "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase2/analyze_dino_prior_source.py --device cpu --max-samples 6)",
       "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase1/analyze_dino_spatial_consistency.py --help)",
-      "Bash(awk '$1!=0||$2!=0{print \"  CONTENT CHANGED:\",$3} END{print \"  checked\",NR,\"paths\"}')"
+      "Bash(awk '$1!=0||$2!=0{print \"  CONTENT CHANGED:\",$3} END{print \"  checked\",NR,\"paths\"}')",
+      "Bash(cd /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer *)"
     ],
     "additionalDirectories": [
-      "/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub/hub/facebookresearch_dinov2_main/dinov2/models"
+      "/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub/hub/facebookresearch_dinov2_main/dinov2/models",
+      "/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/__pycache__"
     ]
   }
 }
