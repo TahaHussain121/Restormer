@@ -190,6 +190,17 @@ reused spatially — the result lands in metadata as centering.existing_pooled_m
 Delete them and that field silently becomes [] on every future run, which would not match the
 committed runs. Do not delete.
 
+DELETED 2026-08-10, NOT RECOVERABLE (experiments/ and tb_logger/ are gitignored, so these
+were never in any branch — dino_prior does NOT have them):
+  experiments/Holo_DINOv2_{lq,render}DINO_verynoisy   24G + 15G  (E1 attempts 1-3)
+  experiments/Holo_DINOv2_{lq,render}DINO_GATE        1.8G each  (gate rounds)
+  experiments/Holo_chain_state_{lq,render}DINO{,_v2}, experiments/Holo_gate_state
+  tb_logger/Holo_DINOv2_*
+Worktree went 44G -> 1.6G. All E1 checkpoints, training states, training logs and TensorBoard
+curves are gone; the only surviving record of E1 is the DEVLOG "Steps 20-26" entry and the
+code on the `dino_prior` branch. KEPT: Holo_Baseline_Restormer (701M),
+Holo_Baseline_Restormer_verynoisy (201M), their chain states and tb_logger dirs.
+
 Removed 2026-08-10: the upstream Denoising/ task directory (Gaussian + real image denoising,
 23 files). Nothing in this project referenced it, and Deraining/, Motion_Deblurring/ and
 Defocus_Deblurring/ were already deleted back in DEVLOG Step 1. Dataset_GaussianDenoising
