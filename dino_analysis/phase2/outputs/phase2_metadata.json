@@ -1,10 +1,10 @@
 {
   "phase": 2,
   "execution_date": "2026-08-10",
-  "execution_local_time": "11:47:21",
+  "execution_local_time": "11:53:51",
   "timezone": "CEST",
   "utc_offset": "+0200",
-  "finished_local_time": "11:47:53",
+  "finished_local_time": "11:54:22",
   "command": "dino_analysis/phase2/analyze_dino_prior_source.py --device cuda",
   "smoke_test": false,
   "output_dir": "dino_analysis/phase2/outputs",
@@ -465,35 +465,35 @@
     {
       "tag": "render_wins",
       "sample_id": "5120",
-      "value": 0.444474,
+      "value": 0.229482,
       "criterion": "Render beats 1e5 by the largest margin (absolute)",
       "file": "dino_analysis/phase2/outputs/representative_samples/phase2_render_wins_sample_5120.png"
     },
     {
       "tag": "1e5_wins",
-      "sample_id": "1910",
-      "value": -0.01682,
+      "sample_id": "5465",
+      "value": -0.0365,
       "criterion": "1e5 beats Render by the largest margin (absolute)",
-      "file": "dino_analysis/phase2/outputs/representative_samples/phase2_1e5_wins_sample_1910.png"
+      "file": "dino_analysis/phase2/outputs/representative_samples/phase2_1e5_wins_sample_5465.png"
     },
     {
       "tag": "near_tie",
-      "sample_id": "0731",
-      "value": 0.00031,
+      "sample_id": "4725",
+      "value": -0.001196,
       "criterion": "the sample closest to tied on absolute alignment (smallest |delta|)",
-      "file": "dino_analysis/phase2/outputs/representative_samples/phase2_near_tie_sample_0731.png"
+      "file": "dino_analysis/phase2/outputs/representative_samples/phase2_near_tie_sample_4725.png"
     },
     {
       "tag": "render_scene_advantage",
       "sample_id": "0592",
-      "value": 0.374358,
+      "value": 0.200296,
       "criterion": "largest scene-specific advantage for Render",
       "file": "dino_analysis/phase2/outputs/representative_samples/phase2_render_scene_advantage_sample_0592.png"
     },
     {
       "tag": "1e5_scene_advantage",
       "sample_id": "5465",
-      "value": -0.2786,
+      "value": -0.117517,
       "criterion": "largest scene-specific advantage for 1e5",
       "file": "dino_analysis/phase2/outputs/representative_samples/phase2_1e5_scene_advantage_sample_5465.png"
     }
