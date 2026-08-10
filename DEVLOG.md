@@ -577,3 +577,110 @@ The other files corrected at the time (HANDOVER.md, design.md,
 render_radar_similarity.py) were removed with E1; see the Steps 20-26 entry.
 DEVLOG Step 1's original line is left as written -- this entry is the correction,
 since the log is append-only.
+
+## Step 28 — E1 purged from the working branch; repo cleanup (2026-08-10)
+
+WHY. E1 (DINOv2 FiLM guidance) failed three times and is not being continued
+(see the Steps 20-26 entry). The DINO *analysis* line continues, and the next
+experiment starts from a tree that is not full of a dead one. The E1 code was
+not wrong so much as answered a question we had not yet asked: it assumed a DINO
+prior carries usable signal for this data. Phases 0/1/2 are what actually test
+that assumption, so they stay and everything built on top of the assumption goes.
+
+BRANCHES. Nothing was destroyed in git. `dino_prior` is a complete, working
+snapshot of E1 at 00cf082 and was pushed before any deletion. All cleanup
+happened on a new branch `dino_e2` cut from it. To read any removed file:
+`git show dino_prior:<path>`.
+
+REMOVED (tracked, all recoverable from dino_prior):
+  - arch/model: the FiLM half of restormer_dino_arch.py (FiLMHead, _film,
+    RestormerDINO, _StubExtractor; 415 -> 162 lines), image_clean_dino_model.py,
+    image_clean_render_model.py
+  - configs: Holo_DINOv2_{lq,render}DINO_{Restormer,GATE}.yml (3 of 4 deleted,
+    the 4th survives as a data-only spec, see KEPT)
+  - launchers/tooling: train_holo_chain_{lq,render}DINO.sh, gate_{lq,render}DINO.sh,
+    gate_verdict.py, make_gate_configs.py, sanity_check_dino_film.py,
+    compute_dino_feat_mean.py
+  - one-off scripts, each referenced only by E1 docs also deleted here:
+    verify_dino_weights.py, debug_dino_inputs.py, analyze_dino_features.py,
+    render_radar_similarity.py
+  - docs: HANDOVER.md, exp3_dino_film/{design.md, E1_DINO_report.md}
+  - upstream Denoising/ (23 files). Never used here. Motion_Deblurring/ and
+    Defocus_Deblurring/ went in Steps 3 and 5; Deraining/ was copied to
+    Deraining_Holo/ in Step 5 and is likewise gone. Denoising/ was the last
+    upstream task dir still sitting there. Dataset_GaussianDenoising still lives
+    in basicsr/data/paired_image_dataset.py and is untouched.
+
+KEPT, because the analysis depends on them and they are reusable, and RENAMED so
+the filename states the function rather than the dead experiment:
+  restormer_dino_arch.py            -> basicsr/models/archs/dinov2_feature_extractor.py
+  paired_image_uint16_render_dataset.py -> basicsr/data/radar_render_triplet_dataset.py
+  Holo_DINOv2_renderDINO_Restormer.yml  -> Deraining_Holo/Options/DINO_analysis_data.yml
+All three are pure renames (0 insertions / 0 deletions). Suffixes are deliberate:
+the extractor drops _arch.py because it registers nothing (basicsr's arch registry
+was importing it for no reason; arch modules 2 -> 1), the dataset KEEPS _dataset.py
+so the data registry still auto-scans it.
+
+dino_analysis_phases/ (renamed from dino_analysis/) was otherwise left alone.
+Rename-aware diff dino_prior..HEAD over the folder: 13 of the 14 tracked files
+are 0 insertions / 0 deletions, and the 14th, visualize_dino_spatial_pca.py, is
++11 / -7 -- seven replaced lines (the two basicsr imports, DEFAULT_OPT, the
+POOLED_MEANS path, and three provenance strings) plus a four-line explanatory
+comment above POOLED_MEANS. Phases 1 and 2 needed no edits at all; they inherit
+through this module. No logic changed anywhere.
+
+TWO THINGS THAT NEARLY WENT WRONG, both caught by running the code rather than
+reading it:
+  1. Deleting Holo_DINOv2_renderDINO_Restormer.yml broke Phase 1 instantly -- it
+     is the default --opt for all three analysis scripts, not just a training
+     config. It was restored at the same path (later renamed) as a data-only spec
+     holding datasets.val plus five dino_* keys. Phase 2 asserts three of those
+     values against phase1_metadata.json, so they must not drift.
+  2. Deleting exp3_dino_film/dino_feat_mean_*.pt was reported at the time as
+     harmless. It was not. report_pooled_mean_incompatibility() reads those two
+     vectors and its return value is written to metadata as
+     centering.existing_pooled_means_examined; with the files gone the field
+     silently became [] where the committed runs recorded two entries. No number
+     or assertion was affected, but a rerun would no longer match the record.
+     Both tensors were restored byte-identical to
+     experiment_results/dino_pooled_means_reference/. They are 3072-d POOLED
+     vectors (4 layers x 768, over 300 crops) and are NOT used for centering --
+     build_extractor passes feat_mean=None and spatial centering uses the 768-d
+     per-layer means in dino_analysis_phases/dino_spatial_layer_means.pt. They
+     exist only so the analysis can record WHY the pooled vectors are unusable
+     spatially. DO NOT DELETE THEM AGAIN.
+
+DELETED FROM DISK, NOT RECOVERABLE. experiments/ and tb_logger/ are gitignored,
+so the E1 commits never touched them and no branch holds them -- dino_prior does
+NOT have these:
+  experiments/Holo_DINOv2_lqDINO_verynoisy       24G
+  experiments/Holo_DINOv2_renderDINO_verynoisy   15G
+  experiments/Holo_DINOv2_{lq,render}DINO_GATE   1.8G each
+  experiments/Holo_chain_state_{lq,render}DINO{,_v2}, experiments/Holo_gate_state
+  tb_logger/Holo_DINOv2_*
+Worktree 44G -> 1.6G. Every E1 checkpoint, training state, training log and
+TensorBoard curve is gone. The surviving record of E1 is the Steps 20-26 entry
+above plus the code on dino_prior. KEPT: Holo_Baseline_Restormer (701M),
+Holo_Baseline_Restormer_verynoisy (201M), their chain states, both baseline
+tb_logger dirs, compare_noisy_vs_verynoisy.png.
+
+VERIFIED after every commit, not just at the end: Phase 1 (--max-samples 4) and
+Phase 2 (--max-samples 6) both exit 0 on CPU against the real DINOv2 checkpoint
+(load_state_dict reports "All keys matched"), Phase 2's phase1-metadata
+consistency check passes, Phase 1 reproduces Block 6 at +0.6728 centered
+1e5<->1e7 -- identical before and after the renames and the disk purge -- and a
+fresh Phase 1 run records config_read: Options/DINO_analysis_data.yml. Smoke runs
+were always written to a scratch --out-dir so the committed 339-sample outputs
+were never overwritten.
+
+KNOWN STALE, left deliberately:
+  - README.md keeps 4 links to Denoising/README.md that now dangle (upstream
+    boilerplate, not ours to maintain)
+  - dino_analysis_phases/DINO_ANALYSIS_DEVLOG.md names the old yml (inside the
+    do-not-touch folder)
+  - Step 3 above says "Kept: Deraining/, Denoising/" -- true when written; this
+    log is append-only
+  - committed metadata JSONs under dino_analysis_phases/*/outputs/ record the OLD
+    module paths in config_read / pairing_source. That is correct: they are
+    provenance of what those runs actually read. Rewriting them would falsify the
+    record. Phase 2 compares dino_model / dino_checkpoint / dino_hub_source only.
