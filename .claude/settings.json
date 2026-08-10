@@ -24,7 +24,8 @@
       "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python -m py_compile dino_analysis/phase2/analyze_dino_prior_source.py)",
       "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis/phase2/analyze_dino_prior_source.py --help)",
       "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis/phase2/analyze_dino_prior_source.py --device cpu --max-samples 5)",
-      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis/phase2/analyze_dino_prior_source.py --device cpu --max-samples 6)"
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis/phase2/analyze_dino_prior_source.py --device cpu --max-samples 6)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis/phase1/analyze_dino_spatial_consistency.py --help)"
     ],
     "additionalDirectories": [
       "/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub/hub/facebookresearch_dinov2_main/dinov2/models"
