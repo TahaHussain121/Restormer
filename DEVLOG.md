@@ -684,3 +684,533 @@ KNOWN STALE, left deliberately:
     module paths in config_read / pairing_source. That is correct: they are
     provenance of what those runs actually read. Rewriting them would falsify the
     record. Phase 2 compares dino_model / dino_checkpoint / dino_hub_source only.
+
+## Step 29 — Phase 3: the restoration experiments (2026-08-11 → 2026-08-13)
+
+WHY. Phases 0/1/2 measured the DINO prior in representation space (patch-wise
+cosine). Nothing before Phase 3 tested whether that signal converts into
+restoration quality. This step builds and launches the experiments that do.
+It deliberately does NOT resurrect E1-FiLM (Steps 20-26): the fusion here is a
+zero-initialized residual projection, and none of the three recorded FiLM
+failure modes are reachable from it.
+
+### 29a — Work Order 1: verification before any experiment existed
+
+Three questions, answered without creating a single config or launching a
+single training run.
+
+1. **Is the LR scheduler mechanically independent of progressive cropping?**
+   Yes. `CosineAnnealingRestartCyclicLR` steps on iteration count alone; the
+   progressive block at `basicsr/train.py:241-270` only changes the crop and the
+   mini-batch. The 92k restart is therefore inherited for comparability with the
+   existing radar recipe, not motivated by a crop transition — and since both
+   arms share it, it cannot confound the comparison. Written into the configs as
+   a comment so the reason survives the run.
+
+2. **One shared DINO extractor.** `phase3_restoration/scripts/dino_shared.py` is
+   now the ONLY sanctioned extraction path for Phase 3 — the layer re-check, the
+   centering means, both architectures and the evaluation scripts all import it.
+   Verified to reproduce the Phase-1 representation. `extract_blocks` returns a
+   **dict keyed by block index**, never a list, because
+   `get_intermediate_layers` returns ASCENDING block order regardless of the
+   order indices are passed in — that was the Phase-2 bug (commit `4240521`) and
+   the data structure now makes it unrepresentable.
+
+3. **Layer re-check at the actual fixed-128 training scale** (val n=339). On the
+   pre-registered primary criterion, centered same-scene 1e5<->1e7:
+   B3 0.6091, **B6 0.6694**, B9 0.5482, B12 0.2337. **B6 locked (0-indexed 5).**
+   DOCUMENTED TENSION, recorded rather than smoothed over: B3 wins the
+   same-vs-different *scene advantage* (+0.1966 vs +0.1453), and that gap is
+   WIDER at 128 than at 256. This is a criterion conflict, not a measurement
+   error. A **B3 run under an identical recipe is pre-registered** so it is
+   settled empirically instead of by argument.
+
+FIRST REAL FAILURE OF THE STEP, and a reusable lesson: the initial layer sweep
+was run in the background on the login node and died after ~7 min at ~800% CPU
+having produced only the means. That is the login-node watchdog (exit 143), not
+a code bug. Resubmitted through SLURM, it finished in **64 s**. An interim
+"the run completed" claim made before checking was wrong and was corrected at
+the time. All non-trivial compute goes through SLURM from here.
+
+### 29b — Work Order 2: E0-Fixed and E1-addition-noisy
+
+Two arms, one permitted difference.
+
+  E0    `Holo_E0_fixed128_baseline` — stock Restormer, fixed 128 crops, no DINO
+  E1-N  `Holo_E1_addition_noisy_fixed128_spatial_B6_latent` — identical, plus
+        centered spatial DINOv2 B6 from the SAME 1e5 crop, injected at the latent
+
+THE FUSION. `P = nn.Conv2d(768, 384, 1)` with zero weight AND zero bias, added
+to `inp_enc_level4` immediately before the 8 latent Transformer blocks:
+`guided = inp_enc_level4 + P(D_centered)`. It starts as an exact no-op, yet
+`dL/dW = dL/d(guided) (x) D` is non-zero on the first backward, so the branch
+grows if it is useful and stays at zero if it is not. No learnable alpha, no
+gate, no multiplicative path, no cross-attention, no concatenation, no decoder
+injection.
+
+FAIRNESS, verified mechanically rather than asserted:
+  - parameter delta = 768x384 + 384 = **295,296** exactly
+  - step-0 outputs identical to E0
+  - trunk initialisation bit-identical: the stock `__init__` builds the whole
+    trunk FIRST, then an **RNG fence** snapshots/restores the CPU and CUDA
+    generator states around ViT + `P` construction, so every later draw (data
+    order, crop positions, augmentation flags) stays aligned with E0's
+
+THE N.1 HAZARD. `REPO_INVESTIGATION_REPORT.md` section N.1 names the
+highest-probability silent bug in this repo: `train.py:241-270` sub-crops and
+subsamples ONLY `lq`/`gt` and passes only `{'lq','gt'}` to the model, so any
+third aligned tensor is silently misaligned. E1-N avoids it by construction —
+the DINO input is derived from `inp_img` INSIDE `forward`, so there is one
+stream and nothing to misalign. The smoke test proves it element-wise with
+`torch.equal` rather than trusting the paragraph.
+
+CHECKPOINTS. The frozen ViT is kept OUT of every checkpoint (86M params x ~150
+checkpoints would be ~60 GB of duplicated frozen weights): `state_dict` strips
+the `dino_ext.` prefix and `load_state_dict` re-injects the live weights before
+delegating, so `strict=True` remains meaningful for everything that IS trained.
+Measured: 105.8 MB, 498 entries, 0 DINO entries.
+
+MEANS. Production centering means computed on the TRAIN split only, >=1000
+images (~256k tokens at 128, ~1024k at 256), accumulated float64 and stored
+float32 — one position-independent [768] vector per (domain, regime). This is
+NOT ImageNet pixel normalisation; it is feature centering, and the arch refuses
+a mean whose metadata records the wrong block, input size or split.
+
+### 29c — The gate, and the amendment it needed
+
+Continuous abort gate, evaluated every optimizer step, logging
+`dino/latent_norm`, `dino/projected_norm`, `dino/injection_ratio` to
+`experiments/<name>/dino_stability.csv`.
+
+**E1 aborted at iteration 4**, on `injection_ratio 0.5555 > 0.5`. This was NOT
+repaired by changing the design. It was reported, and the user chose a
+diagnostic: a throwaway experiment identity with the abort disabled but every
+measurement and trigger still evaluated. Result: the ratio **plateaus at 2.3-6.6
+and drifts DOWN after iteration 1000** — a startup transient, not a runaway.
+
+The diagnosis is mechanical, not hand-waving. `P` is zero-initialized, so
+`injection_ratio` MUST rise from 0; and AdamW's first steps move approximately
+`lr` per weight regardless of gradient magnitude, so the early ratio says
+nothing about steady-state behaviour. A second probe measured the stock latent
+blocks' own residual scales on the E0 diagnostic checkpoint for reference.
+
+GATE AMENDMENT (2026-08-12), the one functional change of the step:
+  - `injection_ratio_max` 0.5 -> **10.0**
+  - ratio rules enforced from iteration **5000** (still measured and logged from
+    iteration 1)
+  - **NaN/Inf hard-stop unchanged and NOT windowed** — active from iteration 1
+This changes WHEN the gate is valid, not how much injection is tolerated in
+steady state.
+
+KNOWN GAP, recorded rather than quietly patched: rule 2 watches the *ratio*, so
+**co-inflation is not gated**. E1-noisy went from latent 215 / projected 872 at
+1k to latent 2310 / projected 5237 at 41k with the ratio flat. A proposed rule
+(abort if either norm exceeds 5x its own 5k reference) is NOT implemented,
+because adding it changes an experiment definition and would require a new
+identity.
+
+### 29d — E1-addition-render: the source ablation
+
+A third arm where the ONLY change is the tensor DINO receives: the aligned
+**render** instead of the noisy 1e5 crop. Restormer still gets 1e5; the target
+is still 1e7. The render is DINO input and nothing else.
+
+THE ALIGNMENT PROBLEM, and why the solution needed no edit to `train.py`. The
+render must receive the identical crop and geometric augmentation as the LQ/GT
+pair — exactly the N.1 hazard above. Rather than adding a third tensor and
+teaching `train.py` to crop it, `Dataset_PairedImage_uint16_RenderStacked` packs
+the render as **channel 1 of the LQ tensor**, so the existing sub-crop is ONE
+slice hitting both channels. `RestormerDinoSpatialRender` then splits
+`radar = inp_img[:, 0:1]` for Restormer and `render = inp_img[:, 1:2]` for DINO,
+with the global residual taken against the radar.
+
+**Zero edits to `basicsr/train.py`** — which was the point. E0 and E1-noisy
+re-read that file at every resume, and both were mid-flight.
+
+NEW MEANS, not reused: the render's DINO statistics differ from the noisy
+heatmap's (clean geometry on black vs a noisy radar field). Same method, same
+count, train split only:
+
+  1e5_B6_train128_dino224_mean.pt      norm 43.5031
+  1e5_B6_eval256_dino448_mean.pt       norm 41.2580
+  render_B6_train128_dino224_mean.pt   norm 56.8906
+  render_B6_eval256_dino448_mean.pt    norm 61.6951
+
+cosine(1e5, render) = **0.1799** at train128, **0.3288** at eval256 — the two
+domains sit in genuinely different places, so centering the render against the
+1e5 mean would have been the wrong distribution.
+
+WORTH STATING IN THE THESIS: the render is normally available in this pipeline,
+so this arm is a **usable method, not merely an oracle**.
+
+The one-line widening of the parent arch's `dino_source` validation was made
+while E1-noisy was in flight; its full 61/61 verification harness was re-run
+afterwards to confirm the in-flight arm was unaffected.
+
+### 29e — Operational: chaining, and never overwriting a log
+
+Each arm now has its OWN chain script — `chain_E0.sh`,
+`chain_E1_addition_noisy.sh`, `chain_E1_addition_render.sh` — sourcing a shared
+`chain_core.sh` so the LOGIC cannot drift between arms while the IDENTITY stays
+separate: distinct job names (`p3chain_E0` / `p3chain_E1addN` / `p3chain_E1addR`),
+log directories, chain-state directories and TensorBoard trees. Each job queues
+its successor with `--dependency=afterany` BEFORE training starts, which is the
+only thing that survives the walltime SIGKILL.
+
+Three bugs found and fixed in this machinery, all of which would have destroyed
+records rather than merely failed:
+  1. SLURM `--output` pointed INTO `experiments/<name>/`, which BasicSR RENAMES
+     to `_archived_<timestamp>` on a fresh start — the log would have been
+     carried off mid-write. Moved to `results/<EXP>/logs/chain_%j.out`.
+  2. `STABILITY_FAILURE.json` was opened with `'w'`, so a later event could
+     destroy an earlier record. Now every failure is archived as
+     `STABILITY_FAILURE_<rule>_iter<N>_job<J>.json` and the un-suffixed file is
+     only a FLAG for the chain driver.
+  3. The "don't start a second trainer" guard matched on SLURM job NAME, so it
+     could not see a trainer launched by a different script. Replaced with an
+     experiment-keyed lock file — placed in `CHAIN_DIR`, never `EXP_DIR`, for
+     reason (1).
+
+HARDWARE. An rtx3080 attempt OOMed (job 1773194): Restormer at 128^2 x batch 8
+exceeded 9.6 GB with the **stock E0 trunk alone** — not a Phase-3 defect. Arms
+were moved to v100, then all three consolidated onto **a100**, so per-iteration
+timing is comparable across the whole Phase-3 table. Two claims made during this
+triage were wrong and were corrected explicitly at the time: "v100 has 4 free of
+16" (tg071 is DRAINED) and "a100 has 0 pending jobs" (`PrivateData=jobs` means
+`squeue` shows only my own jobs — it is not evidence about a partition's load).
+
+### 29f — Status at the time of writing (2026-08-13 ~00:30 CEST)
+
+| arm | job | node | iter | best val PSNR |
+|---|---|---|---|---|
+| E0 | 1774669 | tg092 | 287,000 / 300k | 22.0749 @ 268k |
+| E1-addition-noisy | 1774876 | tg097 | 50,000 | 21.0481 @ 24k |
+| E1-addition-render | 1774839 | tg095 | 62,000 | **23.2106 @ 60k** |
+
+Iteration-matched validation PSNR:
+
+| iter | E0 | E1-noisy | E1-render |
+|---|---|---|---|
+| 4,000 | 19.4023 | 19.6836 | 21.2728 |
+| 20,000 | 19.2156 | 19.6787 | 22.3753 |
+| 40,000 | 20.8640 | 20.4713 | 22.6431 |
+| 48,000 | 20.1320 | 20.4536 | 22.9463 |
+| 60,000 | 20.7795 | -- | **23.2106** |
+
+Two readings, both stated without softening:
+
+  1. **E1-render is far ahead.** +2.43 dB over E0 at matched 60k, and its 60k
+     checkpoint already beats E0's BEST checkpoint at 268k by +1.14 dB — well
+     outside the pre-registered "+0.30 dB = meaningful" threshold.
+  2. **E1-noisy is not separating from E0.** Ahead at 4k/20k, behind at 40k,
+     slightly ahead at 48k. That is oscillation, not signal. On current evidence
+     the noisy-source arm tracks the baseline — which, if it holds, is itself a
+     result: it would say the gain comes from the render's clean geometry rather
+     than from DINO features per se.
+
+CAVEATS THAT TRAVEL WITH THOSE NUMBERS. Mid-training **validation** PSNR, 8-bit
+path, single seed, arms at very different maturity (287k vs 50-62k). The
+pre-registered decision rule is on **test** PSNR of the best-val checkpoint after
+300k. The test split has not been touched. These numbers are not a thesis table.
+
+Stability at last check: noisy ratio ~2.63 (5k reference 4.0398), render ~1.03
+(5k reference 1.1656). Both far inside the cap of 10. No gate has fired since
+the amendment.
+
+### 29g — Open, and deliberately not started
+
+  - **Global/pooled arm of E1** — pool the B6 patch grid to [B,768,1,1], broadcast
+    back, then project; reuse the 1e5 means (centering and pooling commute, since
+    the mean is position-independent). Work order issued 2026-08-13. NOT built.
+  - co-inflation gate rule (29c) — proposed, not implemented
+  - B3 run under an identical recipe — pre-registered
+  - concat-then-project fusion variant — pre-registered
+  - token-shuffle control for the 0.524 different-scene floor — not run
+  - **E0-Fixed over-smoothing re-characterisation** — `scripts/run_evaluate.sh`,
+    wired in, must run once E0 finishes. NOT OPTIONAL: the project's motivating
+    number (HF-energy ratio **0.216**) and the 22.446/22.405/18.313 dB figures
+    were all measured on the OLD progressive baseline. E0-Fixed never trains at
+    256 and should be EXPECTED to score lower in absolute PSNR — that is to be
+    reported, not explained away. Until this runs, the motivation and the results
+    describe two different models.
+
+NOT COMMITTED. The whole Phase-3 body of work is untracked: the three new
+`basicsr/` modules, the new dataset, and `dino_analysis_phases/phase3_restoration/`.
+Three live runs read those files from disk, and both E1 arms pick up an arch edit
+at their NEXT RESUME rather than the next iteration — so an edit lands silently
+hours later. `experiments/` and `tb_logger/` remain gitignored, which is exactly
+how the E1-FiLM runs became unrecoverable in Step 28.
+
+Session handover for all of the above: **HANDOVER.md** (rewritten this step; the
+previous file of that name documented the abandoned FiLM experiment and was
+deleted in `6216542`).
+
+## Step 30 — Phase 3 results: the DINO source decides the sign (2026-08-13 → 2026-08-14)
+
+All three original arms reached 300,000 iterations and were evaluated. This is
+the entry that records what Phase 3 actually found.
+
+### 30a — The result
+
+Validation split, n=339, full256 protocol, 16-bit evaluation path,
+best-validation checkpoint per arm. Selection never read the test split.
+
+| arm | DINO reads | best val @ iter | PSNR | vs E0 | improves |
+|---|---|---|---|---|---|
+| E0-Fixed | -- | 22.0749 @268k | 22.077 | baseline | -- |
+| E1-addition-noisy | 1e5 radar | 21.4678 @128k | **21.469** | **-0.608** | 100/339 (29.5%) |
+| E1-addition-render | render | 24.1171 @204k | **24.120** | **+2.043** | **290/339 (85.5%)** |
+
+| metric | E0 | E1-noisy | E1-render |
+|---|---|---|---|
+| PSNR object mask | 17.978 | 17.479 | 19.893 |
+| SSIM whole / mask | 0.783 / 0.569 | 0.762 / 0.547 | 0.818 / 0.647 |
+| HF energy ratio | 0.200 | 0.280 | 0.336 |
+| Laplacian / Sobel ratio | 0.284 / 0.756 | 0.370 / 0.765 | 0.449 / 0.873 |
+
+E1-render clears the pre-registered "+0.30 dB = meaningful" threshold by nearly
+7x, and does it broadly rather than through outliers: median +1.946 dB, best
++9.19, worst regression only -3.72 (against the noisy arm's -10.14).
+
+It also attacks the weakness the whole project was built on. HF energy ratio
+0.200 -> 0.336 is a **68% relative improvement** in retained high-frequency
+energy, with Laplacian ratio up 58%. The over-smoothing is measurably reduced,
+not traded away for PSNR.
+
+### 30b — Why the NEGATIVE arm is the load-bearing one
+
+E1-addition-noisy landing at **-0.608 dB** is what makes the render result
+usable. The two arms are the same code with one tensor swapped: identical
+parameter count (+295,296 over E0), identical seed, schedule, crop, augmentation,
+optimizer, LR, fusion, gate settings and evaluation. They land on opposite sides
+of the baseline.
+
+So the gain cannot be attributed to added capacity, nor to "adding DINO
+features" generically. It belongs to the DINO **input**.
+
+**State the claim narrowly.** The render is a clean view of the same object and
+carries the target's geometry almost directly. The defensible sentence is:
+*a clean geometric view of the object, delivered through frozen DINO features,
+substantially improves restoration, while the identical mechanism fed the noisy
+radar makes it worse.* Not "DINO features help". The render IS normally
+available in this pipeline, so this stays a usable method rather than an oracle,
+but the source of the advantage must not be overstated.
+
+### 30c — Three findings that a headline number would hide
+
+**1. E1-noisy is SHARPER while being less accurate.** HF ratio 0.280 against the
+baseline's 0.200, Laplacian 0.370 against 0.284 — more high-frequency content
+recovered, and still 0.61 dB worse. It is not an over-smoothing failure; it adds
+structure the target does not contain. Visible directly on val image 4467, where
+it synthesises a bright cross with no counterpart in the 1e7 target. This is a
+HALLUCINATION failure and should be written up as a different mode from blurring.
+
+**2. Both priors help most where the baseline is worst.** On E0's hardest decile
+(34 images): E1-render **+3.07 dB, wins 31/34** — well above its own +2.043
+average; E1-noisy **+0.478 dB, wins 20/34** — positive, despite being negative
+overall. The noisy prior carries something usable when the observation is nearly
+hopeless and interferes on ordinary images.
+
+**3. E1-noisy peaked early.** Best val at 128k (43% of the schedule) then a slow
+decline to 21.2154 at 300k, against E0 peaking at 268k and E1-render at 204k.
+Early peak plus decline is the signature of a prior the network later has to work
+around. Observed, not investigated.
+
+No gate rule fired on any arm for the whole 300k. Both arms trained cleanly; the
+noisy arm simply converged to a worse answer, which is the useful kind of
+negative result — it is about the prior, not the optimisation.
+
+### 30d — Baseline re-characterisation (the open item from Step 29)
+
+Run on E0-Fixed's best checkpoint. **HF energy ratio 0.200** against **0.216**
+for the old progressive baseline -- marginally worse, not better. The premise
+holds and the motivation now describes the same model as the results.
+**Quote 0.200 from here, never 0.216.**
+
+The Sobel/Laplacian gap is its own finding: gradient ratio 0.756 against
+Laplacian ratio 0.284. First-order edges (silhouette, bright structural bars)
+survive reconstruction; second-order detail does not. The radial power spectrum
+shows it directly -- the prediction tracks the target only below ~0.1 of the
+maximum radius, then falls up to an order of magnitude short to Nyquist.
+
+NOT to be misquoted: the crop128 HF ratio of 0.910 has a standard deviation of
+0.475 (on a 128 crop the HF band is narrow and often nearly empty). full256 is
+the figure of record. And the 16-bit evaluation PSNR is not comparable to the
+8-bit training-time val PSNR, despite 22.077 landing near 22.075 by coincidence.
+
+### 30e — The fourth arm
+
+**global-render** (`Holo_global_addition_render_fixed128_B6_latent`), built
+2026-08-13: identical to E1-render except the centered DINO grid is pooled to
+`[B,768,1,1]` and broadcast back, so every spatial position receives the same
+vector. It asks whether the render's contribution is its SPATIAL LAYOUT or just
+a global descriptor of "what object is present".
+
+Implementation is a subclass overriding `dino_prior` and nothing else, so
+`forward`, the radar/render split, the crop alignment and the checkpoint handling
+are inherited unmodified. Verified 61/61: parameter count identical to E1-render
+(26,419,348), zero-init identity **max diff 0.0** against both E0 and E1-render,
+centering/pooling commutation to 2.4e-06 relative 2.5e-07, spatial variance
+driven 7.627 -> exactly 0, and `P(broadcast)` still spatially constant under a
+random 1x1 projection.
+
+A 6000-iteration smoke run with the gate ON completed clean. injection_ratio
+settled at **0.529** mean over the enforcement window against E1-render's ~1.03,
+confirming the registered prediction that pooling would shrink it. Notably the
+ORIGINAL 0.5 cap would have aborted this arm within ~10 iterations -- a second,
+independent confirmation that the Step-29 gate amendment fixed a real
+misdiagnosis.
+
+Launched 2026-08-14, now at **88k/300k**, best val 20.5911 @60k -- below the
+baseline so far. If that holds it means the render's value is genuinely spatial,
+and pooling to one vector is worse than injecting no prior at all.
+
+### 30f — Two tooling bugs found by running the evaluation
+
+Both in `predict_phase3.py`, both would have silently prevented the render arm
+from being evaluated at all:
+
+1. `is_dino` tested `type == 'RestormerDinoSpatial'` by exact string, so the
+   `...Render` and `...GlobalRender` subclasses never had `set_dino_mode` called
+   and would have run the eval256 images in the train128 regime. Now
+   `startswith('RestormerDinoSpatial')`.
+2. The model input was hard-coded to `[1,1,H,W]`. The render arms need the
+   stacked `[1,2,H,W]` (radar ch0, render ch1). Now detected from
+   `dino_source == 'render'` in the config, with the render cropped by the SAME
+   manifest window as the radar under crop128.
+
+Verified after the fix by the eval logs themselves: each arm loaded its own
+centering mean (`1e5_B6_eval256...` vs `render_B6_eval256...`) in eval256 mode.
+
+### 30g — A log-parsing trap that produced one wrong claim
+
+I reported the two E1 arms as "at 182k, chains stopped" when both had in fact
+FINISHED. Two causes compounding: `grep 'iter:'` matches **`total_iter: 300000`**
+in the config dump at the head of every training log, and `train_*.log` files do
+not sort chronologically under a shell glob, so `tail -1` read an older log.
+
+**Use the checkpoint files as ground truth for progress**
+(`ls experiments/<name>/models/`), and anchor any log regex as
+`(?<!total_)iter:\s*([\d,]+),`.
+
+### 30h — New tooling
+
+  scripts/make_single_arm_figures.py   4-panel input/prediction/target/error for
+                                       ONE arm; cases by score (best/median/worst)
+                                       plus fixed representatives
+  scripts/make_three_arm_figures.py    E0 / E1-noisy / E1-render side by side on
+                                       the SAME images, cases keyed on **E0's**
+                                       per-image PSNR so the selection cannot
+                                       flatter the guided arms
+  scripts/make_smoke6k_global_render.py + run_smoke6k_global_render.sh
+  scripts/chain_global_addition_render.sh, smoke_tests_global_render.py
+
+Figures of record: `results/comparisons/three_arm_{harsh,median}_full256_val.png`.
+
+### 30i — Still open
+
+  - **FINAL TEST EVALUATION** -- now unblocked for the three completed arms. The
+    test split remains UNTOUCHED so all arms can be scored in one pass under one
+    protocol. Not run.
+  - global-render to 300k (88k as of this entry)
+  - the pooled ablation on the 1e5 source (requested, never implemented)
+  - B3 run, concat-then-project variant, token-shuffle control -- all still
+    pre-registered and unrun
+  - co-inflation gate rule -- still not implemented
+  - E1-noisy's early peak at 128k -- unexplained
+  - **Phase 3 is still entirely UNTRACKED in git**
+
+## Step 31 — Final test evaluation: the locked split, read once (2026-08-14)
+
+The pre-registered conditions were met before the split was touched: all three
+arms had completed 300,000 iterations, and each checkpoint was selected on
+**validation PSNR alone** (E0 268k, E1-noisy 128k, E1-render 204k). The test
+split had never been read. Jobs 1776745-1776750, v100, three arms x two
+protocols.
+
+Note the contrast with the OLD verynoisy baseline (Step 19a), where the split
+was carved AFTER training so the test half influenced checkpoint selection.
+Phase 3 does not carry that caveat.
+
+### The numbers (test, n=338)
+
+| metric | E0 | E1-noisy | E1-render |
+|---|---|---|---|
+| **PSNR full256** | 21.873 | **21.296 (-0.577)** | **24.081 (+2.208)** |
+| **PSNR crop128** | 19.546 | **19.062 (-0.484)** | **22.259 (+2.713)** |
+| PSNR object mask (full256) | 17.599 | 17.210 | 19.673 |
+| SSIM whole / mask (full256) | 0.783 / 0.560 | 0.762 / 0.540 | 0.822 / 0.643 |
+| HF energy ratio (full256) | 0.218 | 0.275 | 0.328 |
+| Laplacian / Sobel (full256) | 0.286 / 0.764 | 0.370 / 0.779 | 0.438 / 0.871 |
+
+Per-image against E0 (full256): E1-render improves **298/338 (88.2%)**, median
++2.159, worst -2.81, best +8.19. E1-noisy improves 111/338 (32.8%), median
+-0.517, worst -7.43, best +4.10. On crop128: render 299/338 (88.5%), median
++2.540, best +12.19.
+
+### Verdict against the thresholds frozen before any result existed
+
+  < +0.10 dB   no meaningful improvement
+  +0.10..+0.30 marginal / promising
+  > +0.30 dB   MEANINGFUL
+
+**E1-addition-render: MEANINGFUL on both protocols** (+2.208 full256, +2.713
+crop128), roughly 7-9x the threshold.
+**E1-addition-noisy: negative on both** (-0.577, -0.484).
+
+Test CONFIRMED validation (+2.043 / -0.608) rather than overturning it, which is
+what the pre-registration existed to make checkable.
+
+**The matched-128 escape clause does NOT fire.** It was registered as: "if E1
+improves on matched-128 but not on full-256, that indicates the prior is useful
+in-distribution and that full-image scale/context transfer is the limiter -- not
+that the prior is useless." E1-render improves on BOTH, and by MORE at crop128.
+So there is no scale-transfer limitation to invoke; the prior works in both
+regimes, slightly better in the regime it trained in. The clause remains
+unused -- worth recording, because it would have been available as an excuse had
+the result gone the other way.
+
+### E1-render is the best model this project has produced
+
+  old progressive baseline (Exp 2), test, best-val ckpt   22.405 dB
+  E0-Fixed, test, best-val ckpt                           21.873 dB
+  E1-addition-render, test, best-val ckpt                 24.081 dB
+
++1.676 dB over the previous best. And E0-Fixed landing 0.532 dB BELOW the old
+baseline is the registered prediction confirmed, not a problem: the README stated
+in advance that E0-Fixed should score lower in absolute PSNR because it never
+trains at the evaluation resolution. The Phase-3 comparison is internal -- every
+arm shares E0-Fixed's recipe exactly -- so the absolute offset does not affect it.
+
+### A framing correction the test numbers forced
+
+Step 30d recorded E0-Fixed at HF ratio **0.200** against the old baseline's
+**0.216** and called it "marginally worse". The test evaluation makes the
+apples-to-apples comparison available and it is different:
+
+  old progressive baseline (TEST)   0.216
+  E0-Fixed (TEST)                   0.218
+  E0-Fixed (VAL)                    0.200
+
+The old 0.216 was measured on TEST. Test-to-test the two baselines are
+**indistinguishable**; the 0.200-vs-0.216 gap was a val-vs-test artefact, not a
+difference between models. The conclusion is unchanged and cleaner: both
+baselines over-smooth to the same degree, so the motivating weakness transfers
+exactly. **Quote the figure matched to the split of whatever sits beside it.**
+
+Also not to be read: the crop128 HF ratios (0.909 / 0.921 / 0.886) are all near
+0.9 with std ~0.47. On a 128 crop the HF band is narrow and often nearly empty,
+so the statistic is unstable at that scale -- full256 is the figure of record.
+Note this makes E1-render's crop128 HF ratio LOOK lower than E0's; it is noise,
+not a reversal, and the Laplacian ratio at the same scale (0.400 vs 0.305) moves
+the other way.
+
+### Still open
+
+  - global-render at 90k/300k; it will need its OWN test pass when it finishes.
+    Selection is per-arm on validation, so adding it later contaminates nothing.
+  - the pooled ablation on the 1e5 source (requested, never implemented)
+  - B3 run, concat-then-project variant, token-shuffle control
+  - co-inflation gate rule
+  - E1-noisy's early peak at 128k -- unexplained
+  - **Phase 3 is still entirely UNTRACKED in git**
