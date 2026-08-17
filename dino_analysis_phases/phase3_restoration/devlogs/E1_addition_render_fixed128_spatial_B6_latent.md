@@ -252,3 +252,112 @@ on BOTH, and by MORE at crop128 (+2.713) than full256 (+2.208). So there is no
 scale-transfer limitation to invoke — the prior works in both regimes, slightly
 better in the regime it trained in.
 
+
+---
+
+## 2026-08-14 22:03 CEST — MISMATCHED-RENDER CONTROL (post-hoc diagnostic)
+
+**Status of this entry.** POST-HOC DIAGNOSTIC, not a pre-registered result. It
+does not change, qualify or replace the pre-registered headline for this arm
+(test PSNR at 300k, best-validation checkpoint: full256 24.081 dB, crop128
+22.259 dB). It was run on the **validation** split only. No training was done,
+no config, architecture, centering mean, threshold or checkpoint was modified,
+and no experiment identity was started or resumed. Everything lives under a
+throwaway path and is inference-only, under `torch.no_grad`.
+
+### Why it was run
+
+E1-addition-render is +2.04 dB over E0 on val/full256. Open question: is that
+gain the **scene-specific geometry** in that image's own render, or is the
+injected branch acting as a generic regulariser / extra capacity? A branch that
+merely adds capacity should be largely indifferent to *which* render it reads.
+
+### Setup
+
+| item | value |
+|---|---|
+| checkpoint | `experiments/Holo_E1_addition_render_fixed128_spatial_B6_latent/models/net_g_204000.pth` (204k, best-validation — the same checkpoint the committed evaluation used) |
+| config | `configs/E1_addition_render_fixed128_spatial_B6_latent.yml`, unmodified |
+| split | val, n=339. Test untouched by this control. |
+| protocols | full256 **and** crop128 (matched-128, shared manifest `results/crop_manifests/matched128_val.csv`) |
+| centering mean, full256 | `means/render_B6_eval256_dino448_mean.pt` — the arm's own trained mean, not recomputed, not the 1e5 mean |
+| centering mean, crop128 | `means/render_B6_train128_dino224_mean.pt` — likewise |
+| permutation | Sattolo single-cycle, **seed 20260814**, over the sorted val id list; a derangement by construction, asserted for fixed points and bijectivity |
+| manifests | `results/throwaway_mismatched_render_control/{full256,crop128}_val/shuffle_manifest.csv` |
+| mean render (D) | pixel-wise mean of all **6101 training renders**, `results/throwaway_mismatched_render_control/train_mean_render.npy` (min 0.0000, max 0.7904, mean 0.1788) |
+| metrics | `Deraining_Holo/masked_metrics.py`, UNCHANGED, same threshold and GT-derived mask as every other Phase-3 number |
+| job | SLURM 1776802, a100, 5m22s |
+
+Four forward passes per image. The Restormer input is the 1e5 radar and the
+target is 1e7 in **all four**; the only thing that changes is the tensor handed
+to DINO. Under crop128 the substitute render is cropped with the **image's own**
+(x, y, size) window from the shared manifest, so only *which* render differs,
+never how it was processed. The zero tensor goes through the same preprocess
+(repeat to 3ch -> bilinear 448/224 -> ImageNet normalise) and the same centering.
+
+**Sanity check:** condition A reproduces the committed evaluation to
+`max |dPSNR| = 0.00285 dB` over all 339 images (float non-determinism only).
+
+### Numbers — val, full256, n=339
+
+| condition | PSNR | SSIM | delta vs A | delta vs E0 | mean injection_ratio | mean ||P(D)|| |
+|---|---|---|---|---|---|---|
+| A correct render | **24.120** | 0.8177 | +0.000 | +2.043 | 0.9230 | 5460.63 |
+| B shuffled render | **14.823** | 0.6191 | **-9.297** | -7.254 | 0.9252 | 5460.63 |
+| C zero render | **15.219** | 0.6053 | **-8.901** | -6.858 | 0.6063 | 3577.78 |
+| D mean render | **14.248** | 0.4584 | **-9.872** | -7.829 | 1.1869 | 7004.02 |
+| E0-Fixed | 22.077 | 0.7828 | -2.043 | +0.000 | — | — |
+
+### Numbers — val, crop128 (matched-128), n=339
+
+| condition | PSNR | SSIM | delta vs A | delta vs E0 | mean injection_ratio | mean ||P(D)|| |
+|---|---|---|---|---|---|---|
+| A correct render | **22.187** | 0.7373 | +0.000 | +2.372 | 0.9890 | 3036.20 |
+| B shuffled render | **13.093** | 0.4472 | **-9.094** | -6.723 | 0.9923 | 3045.29 |
+| C zero render | **9.052** | 0.3726 | **-13.135** | -10.763 | 0.7273 | 2229.35 |
+| D mean render | **11.938** | 0.3452 | **-10.249** | -7.878 | 1.1715 | 3592.89 |
+| E0-Fixed | 19.816 | 0.6761 | -2.372 | +0.000 | — | — |
+
+Mean latent norm at the injection point: 5918.79 (full256), 3082.02 (crop128),
+identical across conditions — the DINO input does not touch the encoder path.
+Under full256, mean ||P(D)|| for A and B is identical **by construction**: B
+feeds the same 339 renders, only permuted, and ||P(D)|| depends on the render
+alone. So the branch contributes the *same* magnitude with the *wrong* content.
+Under crop128 the two differ marginally (3036.20 vs 3045.29) because each
+substitute render is cropped at the image's own window rather than its own.
+
+### Per-image A vs B (full256)
+
+- Pearson r = **0.251**, Spearman r = **0.254** — A's per-image quality barely
+  predicts B's.
+- **339/339 images are worse under B.** 0 improve.
+- A-B delta: mean +9.297, median +8.993, std 3.634, p05 +4.292, p95 +15.897,
+  min +1.154, max +19.557. The drop is broad, not a few collapses — the mildest
+  image still loses 1.15 dB.
+- B lands below E0's *mean* PSNR on **337/339** images.
+- crop128: 335/339 worse, mean +9.094, min -7.842 (4 images improve).
+
+### Visuals
+
+`results/throwaway_mismatched_render_control/{full256,crop128}_val/visuals/`,
+four panels per protocol, ids picked mechanically from the A-B delta
+(representative = closest to the mean delta, best = max, median, worst = min);
+columns 1e5 input | correct render | A prediction | B prediction | 1e7 target.
+full256: representative 4316 (+9.32), best 5510 (+19.56), median 6324 (+8.99),
+worst 2886 (+1.15). B visibly reconstructs the *other scene's* object geometry.
+
+### Pattern observed
+
+**B and C both fall far below E0** (-7.25 and -6.86 dB vs E0 on full256; -6.72
+and -10.76 on crop128), while ||P(D)|| under B is unchanged from A. This matches
+the pre-stated pattern "**B and C fall toward E0 -> the gain is scene-specific**",
+and in fact overshoots it: the mismatched conditions land well *below* the
+no-prior baseline, not merely back at it. D (mean render) behaves like C and B.
+
+Reported without a design recommendation. No conclusion about the validity of
+the render arm is drawn here.
+
+**Artifacts:** `results/throwaway_mismatched_render_control/` — per-condition
+predictions, `dino_stats.csv` (latent_norm, projected_norm, injection_ratio per
+image), `shuffle_manifest.csv`, `per_image_A_vs_B.csv`, `control_summary.json`,
+`control_metadata.json`, `logs/control_1776802.out`.
