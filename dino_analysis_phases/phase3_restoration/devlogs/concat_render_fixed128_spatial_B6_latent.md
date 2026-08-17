@@ -164,8 +164,40 @@ experiment identity and no checkpoint written. The load-bearing ones:
 - 256 eval: 1024 tokens → 32×32 grid == 32×32 latent, no interpolation,
   `mu_eval256` in use.
 
-Run on GPU before launching with
-`sbatch dino_analysis_phases/phase3_restoration/scripts/run_smoke_concat_render.sh`.
+### GPU RE-RUN, AND A TF32 FINDING WORTH RECORDING
+
+The first GPU run (job 1781744, **RTX 3080**) came back **51/52**: the step-0
+check read `max |concat - E0| = 2.159e-04` against a 1e-6 tolerance. Diagnosed
+before changing anything (probe jobs 1781842 v100 / 1781843 rtx3080):
+
+| GPU | TF32 | max \|concat - E0\| | max \|guided - F\| at the fusion |
+|---|---|---|---|
+| RTX 3080 (Ampere) | on (default) | 2.409e-04 | 1.221e-04 |
+| RTX 3080 (Ampere) | off | **0.000e+00** | **0.000e+00** |
+| V100 (no TF32) | n/a | **0.000e+00** | **0.000e+00** |
+
+**The fusion arithmetic is exact**: `fuse(cat([F, D])) == F` bit-for-bit in
+true fp32. The deviation is cuDNN running the fused convolution in TF32, which
+is the default on Ampere and newer in torch 2.5. It hits this arm and not the
+addition arms for a structural reason: `P(D)` has zero weights and is exactly
+zero in any precision, and E0 passes F to the latent with no convolution at
+all, whereas concat convolves F itself through 1152 input channels and so is
+the only path that loses mantissa bits.
+
+Magnitude: 2.4e-4 on outputs in [0,1] is ~72 dB, far below anything this
+experiment measures, and TF32 is not a new regime -- every other Restormer
+convolution already runs under it on a100.
+
+DECISION: the architecture is NOT changed and the tolerance is NOT loosened.
+`run_smoke_concat_render.sh` is pinned to **v100**, where Volta's lack of TF32
+means the check measures the arithmetic rather than the accelerator's precision
+mode, so "step 0 IS E0" stays literally true at 1e-6. **Re-run on v100: 52/52
+passed** (job 1781848), step-0 deviation **0.000e+00**, DINO-half first
+gradient 2.273e-02.
+
+Consequence to keep in view: under TF32 on a100, where this arm actually
+trains, step-0 equality with E0 holds to ~2.4e-4 rather than exactly. That is a
+statement about the accelerator, not about the fusion.
 
 ### ISOLATION
 
