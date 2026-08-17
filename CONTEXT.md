@@ -130,7 +130,51 @@ All config work happened on fived08; the actual first completed training run was
 - [ ] Over-smoothing is the headline weakness: prediction retains only ~22% of GT high-frequency energy
 - [x] E1 (DINOv2 FiLM injection) ATTEMPTED AND ABANDONED — failed 3x, code removed from this
       branch, preserved on `dino_prior`. See DEVLOG "Steps 20-26".
-- [ ] DINO prior analysis (Phase 0/1/2 done, Phase 3 open) — dino_analysis_phases/
+- [x] DINO prior analysis Phase 0/1/2 complete — dino_analysis_phases/
+- [x] Phase 3 (restoration) BUILT AND VERIFIED — arch, model, dataset, configs, means,
+      smoke tests, stability gate, per-arm self-chaining SLURM drivers. Layer locked to
+      B6 (0-indexed 5) on the pre-registered criterion at the fixed-128 training scale.
+      See HANDOVER.md and dino_analysis_phases/phase3_restoration/README.md.
+- [x] *** PHASE 3 DECIDED ON THE LOCKED TEST SPLIT (2026-08-14, n=338) ***
+        arm                 test full256      test crop128
+        E0-Fixed            21.873 dB         19.546 dB     (baseline, no DINO)
+        E1-addition-noisy   21.296 (-0.577)   19.062 (-0.484)   DINO reads 1e5 radar
+        E1-addition-render  24.081 (+2.208)   22.259 (+2.713)   DINO reads render
+      E1-render is MEANINGFUL on BOTH protocols against the pre-registered >+0.30 dB
+      threshold and improves 298/338 images (88.2%); E1-noisy is negative on both.
+      Test CONFIRMED validation. The pre-registered matched-128 escape clause does NOT
+      apply: E1-render improves on both protocols, and by MORE at crop128 — so there is
+      no scale-transfer limitation to invoke.
+      E1-render (24.081) is the BEST MODEL THIS PROJECT HAS PRODUCED, beating the old
+      progressive baseline (22.405 test) by +1.676 dB. E0-Fixed (21.873) is 0.53 dB BELOW
+      that old baseline — exactly as registered in advance, since it never trains at 256.
+      Checkpoints: E0 268k, E1-noisy 128k, E1-render 204k, all selected on VALIDATION.
+- [x] Phase 3 THREE ARMS COMPLETE at 300k, validation numbers (2026-08-14, val n=339, full256):
+        E0-Fixed            22.077 dB   HF 0.200   (baseline, best val 22.0749 @268k)
+        E1-addition-noisy   21.469 dB   HF 0.280   -0.608 dB, improves only 100/339
+        E1-addition-render  24.120 dB   HF 0.336   +2.043 dB, improves 290/339 (85.5%)
+      *** THE RESULT: reading the RENDER gains +2.04 dB; reading the NOISY RADAR loses
+      0.61 dB vs no prior at all. Same code, one tensor swapped, identical parameter
+      count (+295,296), seed and schedule — so the gain belongs to the DINO INPUT, not
+      to added capacity or to "DINO features" generically. ***
+      NUANCE: E1-noisy is SHARPER but less accurate (HF 0.280 vs 0.200) — it hallucinates
+      structure rather than over-smoothing; and it HELPS on E0's hardest decile (+0.48 dB,
+      20/34) while hurting overall. E1-render gains most exactly where E0 fails worst
+      (hardest decile +3.07 dB, 31/34 wins).
+      CLAIM NARROWLY: the render is a clean view of the same object, so it carries the
+      target's geometry. Not "DINO features help" but "a clean geometric view of the
+      object, delivered through frozen DINO, helps — the same mechanism on noisy radar
+      does not". The render IS normally available, so this is a usable method.
+- [~] 4th arm global-render (pooled ablation of E1-render) at 90k/300k — tests whether
+      the render's value is SPATIAL. Early signal: below baseline.
+- [x] E0-Fixed over-smoothing re-characterisation DONE — HF ratio 0.218 (test) / 0.200 (val).
+      CORRECTED FRAMING: the old baseline's 0.216 was measured on TEST, so test-to-test the
+      two baselines are 0.218 vs 0.216 — INDISTINGUISHABLE, not "marginally worse". The
+      earlier 0.200-vs-0.216 gap was a val-vs-test artefact. Quote the figure matched to the
+      split it sits beside. Do NOT read crop128 HF ratios (~0.9 all arms, std ~0.47).
+- [x] FINAL TEST EVALUATION DONE (jobs 1776745-1776750, both protocols, all three arms).
+      Test split now read; global-render will need its own pass when it finishes.
+- [ ] Phase 3 NOT COMMITTED — arch/model/dataset/phase3_restoration/ are all untracked
 
 Config naming convention:
   Holo_Baseline_Restormer.yml       — pure Restormer, no DINOv2
@@ -151,7 +195,60 @@ Dataset note: TWO datasets are now in play.
                                 no test split. train_/val_verynoisy built as symlinks from
                                 splits/*.txt (see DEVLOG Step 19).
 
-Last change: 2026-08-10 — E1 REMOVED from this branch (branch `dino_e2`). The DINOv2-FiLM
+Last change: 2026-08-14 — PHASE 3 HAS ITS ANSWER. All three original arms finished 300k and
+were evaluated on val/full256 (n=339), best-validation checkpoint each. The DINO source is
+the whole story:
+
+  E0-Fixed            22.077 dB    baseline, no DINO
+  E1-addition-noisy   21.469 dB    -0.608 dB   DINO reads the 1e5 radar
+  E1-addition-render  24.120 dB    +2.043 dB   DINO reads the render
+
+The negative arm is what makes the positive one usable: E1-noisy is the SAME code as
+E1-render with one tensor swapped — same +295,296 parameters, same seed, schedule, crop,
+fusion and gate — and they land on opposite sides of the baseline. E1-render also attacks
+the project's motivating weakness directly: HF energy ratio 0.200 -> 0.336 (+68% relative),
+Laplacian 0.284 -> 0.449, and it improves 290/339 images (85.5%), gaining most exactly where
+the baseline fails worst (E0's hardest decile: +3.07 dB, 31/34 wins).
+
+Do NOT summarise this as "DINO features help". The render is a clean view of the same object
+and carries the target's geometry, so the defensible claim is narrower: a clean geometric
+view of the object, delivered through frozen DINO features, substantially improves
+restoration, while the identical mechanism fed the noisy radar makes it worse. The render is
+normally available in this pipeline, so it remains a usable method rather than an oracle.
+
+Two nuances that must survive into the write-up: E1-noisy is SHARPER than the baseline while
+being less accurate (HF 0.280 vs 0.200) — it hallucinates structure instead of over-smoothing
+— and it HELPS on E0's hardest decile (+0.48 dB, 20/34) while hurting overall. A fourth arm,
+global-render (E1-render with the DINO grid pooled to one broadcast vector), is at 88k/300k
+and testing whether the render's value is spatial; its early signal sits below the baseline.
+Test split still UNTOUCHED. Figures: results/comparisons/three_arm_{harsh,median}_full256_val.png.
+
+Prior (2026-08-13): Phase 3 running. Three arms train concurrently on a100, each with
+its own config, devlog, chain script, job name, log directory, chain-state directory and
+TensorBoard tree (logs are never overwritten). The single permitted difference between arms
+is the DINO branch, and between the two E1 arms it is ONLY which tensor DINO reads:
+
+  E0                  stock Restormer, fixed 128 crops, no DINO
+  E1-addition-noisy   + frozen DINOv2 B6 from the SAME 1e5 crop
+  E1-addition-render  + frozen DINOv2 B6 from the aligned RENDER (render is normally
+                      available, so this is a usable method, not only an oracle)
+
+Injection is a ZERO-INITIALIZED RESIDUAL PROJECTION at the latent — P = Conv2d(768,384,1),
+zero weight and zero bias, added to inp_enc_level4 before the 8 latent blocks. Parameter
+delta exactly 295,296; step-0 output identical to E0. It is NOT FiLM — none of the three
+recorded FiLM failures apply. New files (all untracked so far):
+  basicsr/models/archs/restormer_dino_spatial_arch.py   RestormerDinoSpatial
+  basicsr/models/archs/restormer_dino_render_arch.py    RestormerDinoSpatialRender
+  basicsr/models/image_restoration_dino_model.py        ImageCleanModelDinoSpatial + gate
+  basicsr/data/paired_radar_render_stacked_dataset.py   render as channel 1 of the LQ tensor
+  dino_analysis_phases/phase3_restoration/              configs, means, devlogs, scripts, results
+The REPO_INVESTIGATION_REPORT.md N.1 hazard (train.py:241-270 sub-crops only lq/gt, so a third
+aligned tensor is silently misaligned) is avoided BY CONSTRUCTION in both arms — the noisy arm
+derives DINO's input from inp_img inside forward, and the render arm packs the render as
+channel 1 of the LQ tensor so one slice hits both. Neither needed an edit to train.py, which
+matters because all three arms re-read that file at every resume. Full detail: HANDOVER.md.
+
+Prior (2026-08-10): E1 REMOVED from this branch (branch `dino_e2`). The DINOv2-FiLM
 training experiment failed three times and is not being continued; its arch, model wrappers,
 configs, launchers, gate scripts, design.md and E1_DINO_report.md were deleted here and are
 preserved on the `dino_prior` branch. What was KEPT, because the DINO analysis line depends
