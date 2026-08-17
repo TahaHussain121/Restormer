@@ -24,11 +24,41 @@
       "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase2/analyze_dino_prior_source.py --device cpu --max-samples 6)",
       "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase1/analyze_dino_spatial_consistency.py --help)",
       "Bash(awk '$1!=0||$2!=0{print \"  CONTENT CHANGED:\",$3} END{print \"  checked\",NR,\"paths\"}')",
-      "Bash(cd /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer *)"
+      "Bash(cd /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer *)",
+      "Bash(python3 -c ' *)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python /scratch/claude-214675/-home-woody-iwnt-iwnt174h-thesis-dino-code-Restormer/de5497f1-bc39-43dd-87c0-cda628d37d25/scratchpad/shape_probe.py)",
+      "Bash(TORCH_HOME=/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub /home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python /scratch/claude-214675/-home-woody-iwnt-iwnt174h-thesis-dino-code-Restormer/de5497f1-bc39-43dd-87c0-cda628d37d25/scratchpad/dino_probe.py)",
+      "Bash(nvidia-smi --query-gpu=name,memory.total --format=csv)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python -c \"import torch;print\\(torch.__version__, torch.cuda.is_available\\(\\), torch.cuda.device_count\\(\\)\\)\")",
+      "Bash(mkdir -p dino_analysis_phases/phase3_restoration/scripts && ls dino_analysis_phases/phase1/ dino_analysis_phases/phase2/)",
+      "Bash(TORCH_HOME=/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub OMP_NUM_THREADS=16 /home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase3_restoration/scripts/verify_phase1_equivalence.py)",
+      "Bash(time TORCH_HOME=/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub OMP_NUM_THREADS=16 /home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase3_restoration/scripts/layer_recheck_fixed128.py --limit 4 --num-mean-samples 4 --protocols random --outdir /scratch/claude-214675/-home-woody-iwnt-iwnt174h-thesis-dino-code-Restormer/61de2591-99ee-4cd9-9a18-691becf15b9c/scratchpad/timing)",
+      "Bash(TORCH_HOME=/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub OMP_NUM_THREADS=16 /home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase3_restoration/scripts/layer_recheck_fixed128.py)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(TORCH_HOME=/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub OMP_NUM_THREADS=4 /home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python -c ' *)",
+      "Bash(TORCH_HOME=/home/woody/iwnt/iwnt174h/thesis_dino/code/venv sleep 240)",
+      "Bash(ps -eo pid,etime,pcpu,cmd)",
+      "Bash(mv phase1_equivalence.json phase1_equivalence_cuda.json)",
+      "Bash(TORCH_HOME=/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub OMP_NUM_THREADS=8 /home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase3_restoration/scripts/verify_phase1_equivalence.py --device cpu --out dino_analysis_phases/phase3_restoration/results/wo1_verification/phase1_equivalence_cpu.json)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase3_restoration/scripts/make_crop_manifest.py --split val)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase3_restoration/scripts/make_crop_manifest.py --split test)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase3_restoration/scripts/make_smoke_configs.py)",
+      "Bash(chmod +x dino_analysis_phases/phase3_restoration/scripts/run_smoke_tests.sh)",
+      "Bash(sbatch dino_analysis_phases/phase3_restoration/scripts/run_smoke_tests.sh)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase3_restoration/scripts/select_best_checkpoint.py --name Holo_Baseline_Restormer_verynoisy --out /scratch/claude-214675/-home-woody-iwnt-iwnt174h-thesis-dino-code-Restormer/61de2591-99ee-4cd9-9a18-691becf15b9c/scratchpad/parsertest.json)",
+      "Bash(/home/woody/iwnt/iwnt174h/thesis_dino/code/venv/bin/python dino_analysis_phases/phase3_restoration/scripts/stability_gate.py --e0-name Holo_Baseline_Restormer_verynoisy --e1-name Holo_Baseline_Restormer_verynoisy --out /scratch/claude-214675/-home-woody-iwnt-iwnt174h-thesis-dino-code-Restormer/61de2591-99ee-4cd9-9a18-691becf15b9c/scratchpad/gatetest.json)",
+      "Bash(chmod +x dino_analysis_phases/phase3_restoration/scripts/run_train_chain.sh)",
+      "Bash(bash -n dino_analysis_phases/phase3_restoration/scripts/run_train_chain.sh)",
+      "Bash(sbatch --dependency=afterany:1773732 dino_analysis_phases/phase3_restoration/scripts/run_train_chain.sh E0)",
+      "Bash(sinfo -o \"%.12P %.6a %.14l %.6D %.14C %.24G %N\")",
+      "Bash(scontrol show *)",
+      "Bash(sacct -j 1774689 --format=State,Elapsed -n)",
+      "Bash(sacct -j 1774671 --format=Start,End -n)"
     ],
     "additionalDirectories": [
       "/home/woody/iwnt/iwnt174h/thesis_dino/code/torch_hub/hub/facebookresearch_dinov2_main/dinov2/models",
-      "/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/__pycache__"
+      "/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/__pycache__",
+      "/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration"
     ]
   }
 }
