@@ -1,0 +1,219 @@
+# =============================================================================
+# global-render — the SPATIAL ablation of E1-render.
+#
+# REFERENCE ARM IS E1-RENDER, not E1-addition-noisy. THIS FILE IS
+# E1_addition_render_fixed128_spatial_B6_latent.yml WITH EXACTLY ONE
+# SCIENTIFIC DIFFERENCE:
+#
+#   network_g.type       RestormerDinoSpatialRender
+#                     -> RestormerDinoSpatialGlobalRender
+#   network_g.dino_pooling: global_mean      (new key, surfaces the change)
+#
+# plus the three identity/bookkeeping paths that a separate experiment must
+# have and that carry no scientific content: `name`, `logger.tb_logger_dir` and
+# `dino_stability.devlog`.
+#
+# WHAT THE ONE DIFFERENCE DOES. The centered DINO grid is averaged over its
+# spatial positions to a single [B,768,1,1] vector and broadcast back to
+# [B,768,g,g] before the projection, so every spatial position receives the SAME
+# vector:
+#
+#   E1-render       D_centered [B,768,16,16] ---------------> P -> + at latent
+#   global-render   D_centered [B,768,16,16] -> mean -> [B,768,1,1]
+#                                            -> broadcast -> P -> + at latent
+#
+# The ONLY difference from E1-render is the presence or absence of spatial
+# variation. The question: does E1-render's gain come from DINO's spatial
+# layout, or would one global descriptor of the render do just as well?
+#
+# DINO SOURCE IS STILL THE RENDER. `dino_source: render`, the render means, and
+# the stacked render dataset are all unchanged. Restormer still receives the 1e5
+# crop and the target is still 1e7. The render is DINO input only -- never a
+# Restormer input, never a target, never a centering statistic for a radar arm.
+#
+# CROP + AUGMENTATION ALIGNMENT is inherited unchanged: the render travels as
+# channel 1 of the LQ tensor, so train.py's sub-crop is ONE slice hitting both
+# channels. Pooling happens AFTER the crop, inside the model, so a desynced crop
+# would still be fatal -- it simply cannot occur, because there is only one
+# tensor to crop. (REPO_INVESTIGATION_REPORT N.1.)
+#
+# MEANS ARE REUSED, NOT RECOMPUTED. The centering mean is one
+# position-independent [768] vector, so centering and pooling commute:
+#   mean_p(D_p - mu) == mean_p(D_p) - mu
+# The architecture centers first, then pools. The smoke test verifies both
+# orders numerically on a real batch.
+#
+# PARAMETERS UNCHANGED: pooling is a mean and a broadcast, so this arm has
+# exactly the same parameter count as E1-render, 295,296 more than E0.
+#
+# PATCH TOKENS, NOT CLS. The pooled vector is the mean of the PATCH tokens.
+# The CLS token is a different object and would change two things at once;
+# extraction runs with return_class_token=False, so CLS is never available.
+#
+# LAYER LOCK: B6 (0-indexed 5) -- unchanged, see the E1 configs for the
+# pre-registered criterion and the documented B3 tension.
+#
+# SCHEDULER (identical to E0 and both E1 arms):
+#   "The 92k restart is inherited for comparability with the existing radar
+#   training recipe; it is not motivated by a crop transition under fixed-128
+#   training. All arms share it, so it cannot confound the comparison."
+# =============================================================================
+
+name: Holo_global_addition_render_fixed128_B6_latent
+model_type: ImageCleanModelDinoSpatial
+scale: 1
+num_gpu: 1
+manual_seed: 100
+
+datasets:
+  train:
+    name: TrainSet
+    type: Dataset_PairedImage_uint16_RenderStacked
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_verynoisy
+    dataroot_render: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_renders_blackbg
+    geometric_augs: true
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    use_shuffle: true
+    num_worker_per_gpu: 2
+    batch_size_per_gpu: 8
+
+    ### ---------- FIXED 128 crop, constant batch, one stage ----------
+    mini_batch_sizes: [8]
+    iters: [300000]
+    gt_size: 256        # dataset-level crop: no-op on native 256x256 images
+    gt_sizes: [128]     # train.py sub-crop: the ACTUAL patch the network sees
+    ### ---------------------------------------------------------------
+
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    name: ValSet
+    type: Dataset_PairedImage_uint16_RenderStacked
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_verynoisy
+    dataroot_render: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_renders_blackbg
+    io_backend:
+      type: disk
+
+network_g:
+  type: RestormerDinoSpatialGlobalRender
+  inp_channels: 1
+  out_channels: 1
+  dim: 48
+  num_blocks: [4,6,6,8]
+  num_refinement_blocks: 4
+  heads: [1,2,4,8]
+  ffn_expansion_factor: 2.66
+  bias: False
+  LayerNorm_type: WithBias
+  dual_pixel_task: False
+
+  # ---------------- DINO guidance branch --------------
+  dino_enabled: true
+  dino_model: dinov2_vitb14
+  dino_block: 6                 # 1-indexed B6 == 0-indexed 5 (asserted in code)
+  dino_frozen: true             # requires_grad False + eval() enforced in arch
+  dino_source: render           # UNCHANGED from E1-render: DINO sees the render
+  dino_pooling: global_mean     # THE ONE SCIENTIFIC CHANGE vs E1-render
+  dino_injection: latent        # inp_enc_level4, BEFORE the 8 latent blocks
+  dino_projection: conv1x1      # nn.Conv2d(768, 384, 1)
+  dino_init: zero               # zero weight AND zero bias -> P(D) == 0 at step 0
+  dino_embed_dim: 768
+  dino_default_mode: train128   # explicit regime; never inferred from tensor size
+  dino_mean_train128: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_train128_dino224_mean.pt
+  dino_mean_eval256: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_eval256_dino448_mean.pt
+  # --------------------------------------------------------------------------
+
+# Continuous abort gate. Hard stop at ANY iteration. Settings IDENTICAL to both
+# E1 arms -- the gate is not being loosened for this arm.
+#
+# GATE AMENDMENT (2026-08-12). The ratio rules start at iteration 5000 and the
+# cap is 10. This changes WHEN the gate is valid, not how much injection is
+# tolerated in steady state: the 5k diagnostic showed injection_ratio plateaus
+# at 2.3-6.6 and drifts DOWN after iter 1000, so the old 0.5 cap was firing on
+# the startup transient of a zero-initialised projection, not on a pathology.
+# The NaN/Inf hard-stop is NOT windowed and remains active from iteration 1.
+#
+# NOTE on the expected trajectory for THIS arm: pooling cancels token-to-token
+# variation, so ||P(D)|| should be LOWER than E1-render's (which sits at ~1.03).
+# A ratio much HIGHER than E1-render's would be a surprise worth stopping for.
+# Co-inflation (both norms growing together with a flat ratio) remains an
+# UNGATED failure mode -- read latent_norm and projected_norm in
+# dino_stability.csv, not only the ratio.
+dino_stability:
+  enabled: true
+  injection_ratio_max: 10.0       # abort rule 1
+  ratio_rules_start_iter: 5000    # ratio rules enforced from here; measured from iter 1
+  reference_iter: 5000            # abort rule 2 baseline, persisted across resume
+  growth_factor_max: 10.0         # abort rule 2
+  log_freq: 1000
+  devlog: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/devlogs/global_addition_render_fixed128_B6_latent.md
+
+path:
+  pretrain_network_g: ~     # from scratch. Never the 292k checkpoint.
+  strict_load_g: true
+  resume_state: ~           # auto-resume scans experiments/<name>/training_states/
+
+train:
+  total_iter: 300000
+  warmup_iter: -1
+  use_grad_clip: true
+
+  scheduler:
+    type: CosineAnnealingRestartCyclicLR
+    periods: [92000, 208000]
+    restart_weights: [1,1]
+    eta_mins: [0.0003, 0.000001]
+
+  mixing_augs:
+    mixup: false
+    mixup_beta: 1.2
+    use_identity: true
+
+  optim_g:
+    type: AdamW
+    lr: !!float 3e-4
+    weight_decay: !!float 1e-4
+    betas: [0.9, 0.999]
+
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1
+    reduction: mean
+
+val:
+  window_size: 8
+  val_freq: !!float 4e3
+  save_img: false
+  rgb2bgr: true
+  use_image: true          # val PSNR is the 8-bit path; test PSNR is 16-bit
+  max_minibatch: 8
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+
+logger:
+  print_freq: 1000
+  save_checkpoint_freq: !!float 2e3
+  use_tb_logger: true
+  tb_logger_dir: tb_logger/Holo_global_addition_render_fixed128_B6_latent   # decorative
+  wandb:
+    project: ~
+    resume_id: ~
+
+dist_params:
+  backend: nccl
+  port: 29500

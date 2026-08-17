@@ -1,0 +1,146 @@
+# =============================================================================
+# E0-Fixed — Phase-3 control baseline. Stock Restormer, FIXED 128x128 crops,
+# NO DINO, trained from scratch for 300k iterations.
+#
+# WHAT THIS IS NOT
+#   * NOT Holo_Baseline_Restormer_verynoisy. That run used the progressive
+#     128->160->192->256 schedule with mini-batches 8/5/4/2 and reached
+#     22.446 dB val / 22.405 dB test / HF-energy 0.216. Those figures do NOT
+#     describe this model and must never be quoted as its baseline.
+#   * NOT initialised from any existing checkpoint. From scratch.
+#
+# E0-Fixed exists for exactly one purpose: to be the fair control for
+# E1_addition_fixed128_spatial_B6_latent. Every key below that is not the DINO branch
+# is byte-identical between the two configs.
+#
+# FIXED-128 PROTOCOL. The dataset crops to gt_size (256, a no-op on native
+# 256x256 images) and basicsr/train.py then sub-crops to gt_sizes[stage].
+# With a single stage the sub-crop is a uniform random 128x128 window every
+# iteration and the mini-batch is a constant 8 -- verified from the tensors in
+# the smoke test, not from this comment.
+#
+# SCHEDULER (unchanged from the existing recipe, and identical in E1):
+#   "The 92k restart is inherited for comparability with the existing radar
+#   training recipe; it is not motivated by a crop transition under fixed-128
+#   training. Both arms share it, so it cannot confound the comparison."
+#   Work Order 1 established that the LR schedule and the crop schedule are
+#   mechanically independent: base_model.py:183-193 steps the scheduler on
+#   iteration count alone, and the progressive block builds a separate `groups`
+#   array from datasets.train.iters and touches only the lq/gt tensors.
+# =============================================================================
+
+name: Holo_E0_fixed128_baseline
+model_type: ImageCleanModel
+scale: 1
+num_gpu: 1
+manual_seed: 100
+
+datasets:
+  train:
+    name: TrainSet
+    type: Dataset_PairedImage_uint16
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_verynoisy
+    geometric_augs: true
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    use_shuffle: true
+    num_worker_per_gpu: 2
+    batch_size_per_gpu: 8
+
+    ### ---------- FIXED 128 crop, constant batch, one stage ----------
+    mini_batch_sizes: [8]
+    iters: [300000]
+    gt_size: 256        # dataset-level crop: no-op on native 256x256 images
+    gt_sizes: [128]     # train.py sub-crop: the ACTUAL patch the network sees
+    ### ---------------------------------------------------------------
+
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    name: ValSet
+    type: Dataset_PairedImage_uint16
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_verynoisy
+    io_backend:
+      type: disk
+
+network_g:
+  type: Restormer
+  inp_channels: 1
+  out_channels: 1
+  dim: 48
+  num_blocks: [4,6,6,8]
+  num_refinement_blocks: 4
+  heads: [1,2,4,8]
+  ffn_expansion_factor: 2.66
+  bias: False
+  LayerNorm_type: WithBias
+  dual_pixel_task: False
+
+path:
+  pretrain_network_g: ~     # from scratch. Never the 292k checkpoint.
+  strict_load_g: true
+  resume_state: ~           # auto-resume scans experiments/<name>/training_states/
+
+train:
+  total_iter: 300000
+  warmup_iter: -1
+  use_grad_clip: true
+
+  scheduler:
+    type: CosineAnnealingRestartCyclicLR
+    periods: [92000, 208000]
+    restart_weights: [1,1]
+    eta_mins: [0.0003, 0.000001]
+
+  mixing_augs:
+    mixup: false
+    mixup_beta: 1.2
+    use_identity: true
+
+  optim_g:
+    type: AdamW
+    lr: !!float 3e-4
+    weight_decay: !!float 1e-4
+    betas: [0.9, 0.999]
+
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1
+    reduction: mean
+
+val:
+  window_size: 8
+  val_freq: !!float 4e3
+  save_img: false
+  rgb2bgr: true
+  use_image: true          # val PSNR is the 8-bit path; test PSNR is 16-bit
+  max_minibatch: 8
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+
+logger:
+  print_freq: 1000
+  save_checkpoint_freq: !!float 2e3
+  use_tb_logger: true
+  tb_logger_dir: tb_logger/Holo_E0_fixed128_baseline   # decorative: init_tb_logger uses tb_logger/<name>
+  wandb:
+    project: ~
+    resume_id: ~
+
+dist_params:
+  backend: nccl
+  port: 29500

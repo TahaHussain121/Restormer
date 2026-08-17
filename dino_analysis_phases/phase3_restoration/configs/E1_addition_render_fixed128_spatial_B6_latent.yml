@@ -1,0 +1,189 @@
+# =============================================================================
+# E1-N-Fixed — E0_fixed128_baseline plus centered spatial DINOv2 B6 guidance
+# from the SAME noisy 1e5 crop, injected at the latent through a
+# zero-initialized 1x1 residual projection. Trained from scratch, 300k iters.
+#
+# THIS FILE IS E0_fixed128_baseline.yml WITH EXACTLY THREE DIFFERENCES:
+#   1. name          Holo_E1_addition_noisy_fixed128_spatial_B6_latent
+#   2. model_type    ImageCleanModelDinoSpatial  (explicit train128/eval256
+#                    regime switching + the stability gate; the training step
+#                    itself is inherited unchanged from ImageCleanModel)
+#   3. network_g     type RestormerDinoSpatial + the dino_* keys below
+#      (+ the dino_stability block, which only logs and aborts)
+# Splits, crop protocol, augmentation, seed, architecture hyper-parameters,
+# optimizer, LR, scheduler, iterations, batch size, loss, val frequency and
+# metrics are identical to E0.
+#
+# LAYER LOCK: B6 (0-indexed 5), locked on the PRE-REGISTERED primary criterion
+# -- centered same-scene 1e5<->1e7 correspondence at the actual fixed-128
+# training scale: B3 0.6091, B6 0.6694, B9 0.5482, B12 0.2337 (WO1 Task 1.3,
+# n=339). DOCUMENTED TENSION: B3 has the stronger same-vs-different scene
+# advantage (+0.1966 vs +0.1453), and that gap is WIDER at 128 than at 256.
+# This is a criterion conflict, not a measurement error. A B3 run under an
+# identical recipe is pre-registered as the immediate follow-up.
+#
+# SCHEDULER (identical to E0):
+#   "The 92k restart is inherited for comparability with the existing radar
+#   training recipe; it is not motivated by a crop transition under fixed-128
+#   training. Both arms share it, so it cannot confound the comparison."
+#
+# THE PRIOR IS DERIVED FROM THE NETWORK'S OWN INPUT TENSOR inside
+# RestormerDinoSpatial.forward -- there is no second dataset stream, so the
+# progressive-sub-crop misalignment named in REPO_INVESTIGATION_REPORT N.1
+# cannot occur. The smoke test proves it with torch.equal.
+#
+# 1e7 IS TARGET ONLY. It is never used for conditioning, guidance, centering
+# statistics or auxiliary input.
+# =============================================================================
+
+name: Holo_E1_addition_render_fixed128_spatial_B6_latent
+model_type: ImageCleanModelDinoSpatial
+scale: 1
+num_gpu: 1
+manual_seed: 100
+
+datasets:
+  train:
+    name: TrainSet
+    type: Dataset_PairedImage_uint16_RenderStacked
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_verynoisy
+    dataroot_render: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_renders_blackbg
+    geometric_augs: true
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    use_shuffle: true
+    num_worker_per_gpu: 2
+    batch_size_per_gpu: 8
+
+    ### ---------- FIXED 128 crop, constant batch, one stage ----------
+    mini_batch_sizes: [8]
+    iters: [300000]
+    gt_size: 256        # dataset-level crop: no-op on native 256x256 images
+    gt_sizes: [128]     # train.py sub-crop: the ACTUAL patch the network sees
+    ### ---------------------------------------------------------------
+
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    name: ValSet
+    type: Dataset_PairedImage_uint16_RenderStacked
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_verynoisy
+    dataroot_render: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_renders_blackbg
+    io_backend:
+      type: disk
+
+network_g:
+  type: RestormerDinoSpatialRender
+  inp_channels: 1
+  out_channels: 1
+  dim: 48
+  num_blocks: [4,6,6,8]
+  num_refinement_blocks: 4
+  heads: [1,2,4,8]
+  ffn_expansion_factor: 2.66
+  bias: False
+  LayerNorm_type: WithBias
+  dual_pixel_task: False
+
+  # ---------------- DINO guidance branch (the ONLY difference) --------------
+  dino_enabled: true
+  dino_model: dinov2_vitb14
+  dino_block: 6                 # 1-indexed B6 == 0-indexed 5 (asserted in code)
+  dino_frozen: true             # requires_grad False + eval() enforced in arch
+  dino_source: render          # THE ONE SCIENTIFIC CHANGE: DINO sees the render
+  dino_injection: latent        # inp_enc_level4, BEFORE the 8 latent blocks
+  dino_projection: conv1x1      # nn.Conv2d(768, 384, 1)
+  dino_init: zero               # zero weight AND zero bias -> P(D) == 0 at step 0
+  dino_embed_dim: 768
+  dino_default_mode: train128   # explicit regime; never inferred from tensor size
+  dino_mean_train128: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_train128_dino224_mean.pt
+  dino_mean_eval256: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_eval256_dino448_mean.pt
+  # --------------------------------------------------------------------------
+
+# Continuous abort gate (Work Order 2, Step 5). Hard stop at ANY iteration.
+# Rules 3 and 4 (E1-vs-E0 val PSNR, loss divergence) are cross-run and live in
+# phase3_restoration/scripts/stability_gate.py, run every ~10k iterations.
+#
+# GATE AMENDMENT (2026-08-12). The ratio rules now start at iteration 5000 and
+# the cap is 10. This changes WHEN the gate is valid, not how much injection is
+# tolerated in steady state: the 5k diagnostic showed injection_ratio plateaus
+# at 2.3-6.6 and drifts DOWN after iter 1000, so the old 0.5 cap was firing on
+# the startup transient of a zero-initialised projection, not on a pathology.
+# The NaN/Inf hard-stop is NOT windowed and remains active from iteration 1.
+dino_stability:
+  enabled: true
+  injection_ratio_max: 10.0       # abort rule 1 (was 0.5)
+  ratio_rules_start_iter: 5000    # ratio rules enforced from here; measured from iter 1
+  reference_iter: 5000            # abort rule 2 baseline, persisted across resume
+  growth_factor_max: 10.0         # abort rule 2
+  log_freq: 1000
+  devlog: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/devlogs/E1_addition_render_fixed128_spatial_B6_latent.md
+
+path:
+  pretrain_network_g: ~     # from scratch. Never the 292k checkpoint.
+  strict_load_g: true
+  resume_state: ~           # auto-resume scans experiments/<name>/training_states/
+
+train:
+  total_iter: 300000
+  warmup_iter: -1
+  use_grad_clip: true
+
+  scheduler:
+    type: CosineAnnealingRestartCyclicLR
+    periods: [92000, 208000]
+    restart_weights: [1,1]
+    eta_mins: [0.0003, 0.000001]
+
+  mixing_augs:
+    mixup: false
+    mixup_beta: 1.2
+    use_identity: true
+
+  optim_g:
+    type: AdamW
+    lr: !!float 3e-4
+    weight_decay: !!float 1e-4
+    betas: [0.9, 0.999]
+
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1
+    reduction: mean
+
+val:
+  window_size: 8
+  val_freq: !!float 4e3
+  save_img: false
+  rgb2bgr: true
+  use_image: true          # val PSNR is the 8-bit path; test PSNR is 16-bit
+  max_minibatch: 8
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+
+logger:
+  print_freq: 1000
+  save_checkpoint_freq: !!float 2e3
+  use_tb_logger: true
+  tb_logger_dir: tb_logger/Holo_E1_addition_render_fixed128_spatial_B6_latent   # decorative
+  wandb:
+    project: ~
+    resume_id: ~
+
+dist_params:
+  backend: nccl
+  port: 29500
