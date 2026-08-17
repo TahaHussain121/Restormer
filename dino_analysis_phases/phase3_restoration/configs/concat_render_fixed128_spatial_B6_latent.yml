@@ -1,0 +1,199 @@
+# =============================================================================
+# concat-render — E1_addition_render_fixed128_spatial_B6_latent WITH THE FUSION
+# OPERATOR CHANGED, and nothing else.
+#
+# THIS FILE IS E1_addition_render_fixed128_spatial_B6_latent.yml WITH EXACTLY
+# FOUR DIFFERENCES, all of them identity or fusion:
+#   1. name             Holo_concat_render_fixed128_spatial_B6_latent
+#   2. network_g type   RestormerDinoConcatRender  (was RestormerDinoSpatialRender)
+#   3. dino_fusion      concat                     (new key; the arm's whole point)
+#   4. the two per-arm output paths: dino_stability.devlog and tb_logger_dir
+# Everything else is byte-identical: splits, dataset type, crop protocol,
+# augmentation, seed 100, architecture hyper-parameters, DINO block, source,
+# injection point, BOTH centering mean files, optimizer, LR, scheduler,
+# iterations, batch size, loss, val frequency, metrics and every gate threshold.
+#
+# THE FUSION CHANGE
+#   addition-render   guided = F + P(D)                   P:    1x1,  768 -> 384
+#   concat-render     guided = fuse(cat([F, D], dim=1))   fuse: 1x1, 1152 -> 384
+#   The residual addition is REMOVED, not kept alongside: RestormerDinoConcatRender
+#   deletes `P`, so no checkpoint of this arm carries a `P.*` key.
+#   Init: W[:, :384] = identity, W[:, 384:] = 0, bias = 0, so step 0 is
+#   functionally E0 — exactly as the zero-initialised P made addition-render's
+#   step 0 E0. The DINO half still receives a non-zero first gradient.
+#
+# THE FEATURES REMAIN SPATIAL. The [B,768,g,g] B6 patch-token grid is
+# concatenated along channels, position by position. There is no pooling and no
+# broadcast in this arm; it extends the SPATIAL render arm and inherits nothing
+# from global_addition_render_fixed128_B6_latent.yml, which answers a different
+# question.
+#
+# PARAMETERS: +442,752 over E0 (1152*384 + 384), versus addition-render's
+# +295,296. The arms are NOT parameter-matched, and concat's radar-path weight
+# W_F is learnable where addition fixes it at identity. That is inherent to a
+# fusion-operator comparison — recorded in the devlog, not corrected for.
+#
+# LAYER LOCK: unchanged, B6 (0-indexed 5), on the pre-registered criterion at
+# the fixed-128 training scale. The documented B3-vs-B6 tension is unchanged and
+# still open; this arm does not revisit it.
+#
+# SCHEDULER (identical to E0 and to addition-render):
+#   "The 92k restart is inherited for comparability with the existing radar
+#   training recipe; it is not motivated by a crop transition under fixed-128
+#   training. Both arms share it, so it cannot confound the comparison."
+#
+# 1e7 IS TARGET ONLY. It is never used for conditioning, guidance, centering
+# statistics or auxiliary input.
+# =============================================================================
+
+name: Holo_concat_render_fixed128_spatial_B6_latent
+model_type: ImageCleanModelDinoSpatial
+scale: 1
+num_gpu: 1
+manual_seed: 100
+
+datasets:
+  train:
+    name: TrainSet
+    type: Dataset_PairedImage_uint16_RenderStacked
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_verynoisy
+    dataroot_render: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_renders_blackbg
+    geometric_augs: true
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    use_shuffle: true
+    num_worker_per_gpu: 2
+    batch_size_per_gpu: 8
+
+    ### ---------- FIXED 128 crop, constant batch, one stage ----------
+    mini_batch_sizes: [8]
+    iters: [300000]
+    gt_size: 256        # dataset-level crop: no-op on native 256x256 images
+    gt_sizes: [128]     # train.py sub-crop: the ACTUAL patch the network sees
+    ### ---------------------------------------------------------------
+
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    name: ValSet
+    type: Dataset_PairedImage_uint16_RenderStacked
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_verynoisy
+    dataroot_render: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_renders_blackbg
+    io_backend:
+      type: disk
+
+network_g:
+  type: RestormerDinoConcatRender
+  inp_channels: 1
+  out_channels: 1
+  dim: 48
+  num_blocks: [4,6,6,8]
+  num_refinement_blocks: 4
+  heads: [1,2,4,8]
+  ffn_expansion_factor: 2.66
+  bias: False
+  LayerNorm_type: WithBias
+  dual_pixel_task: False
+
+  # ---------------- DINO guidance branch --------------------------------
+  dino_enabled: true
+  dino_model: dinov2_vitb14
+  dino_block: 6                 # 1-indexed B6 == 0-indexed 5 (asserted in code)
+  dino_frozen: true             # requires_grad False + eval() enforced in arch
+  dino_source: render           # unchanged from addition-render: DINO sees the render
+  dino_injection: latent        # inp_enc_level4, BEFORE the 8 latent blocks
+  dino_fusion: concat           # THE ONE FUNCTIONAL CHANGE: concat-then-project
+  dino_projection: conv1x1      # the fuse conv is 1x1, now nn.Conv2d(1152, 384, 1)
+  dino_init: zero               # the DINO half of fuse.weight is zero; radar half identity
+  dino_embed_dim: 768
+  dino_default_mode: train128   # explicit regime; never inferred from tensor size
+  dino_mean_train128: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_train128_dino224_mean.pt
+  dino_mean_eval256: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_eval256_dino448_mean.pt
+  # ----------------------------------------------------------------------
+
+# Continuous abort gate — IDENTICAL to addition-render, thresholds included.
+# The concat arm logs the SAME three quantities (latent_norm, projected_norm,
+# injection_ratio), recovered by splitting fuse.weight into its radar and DINO
+# halves, so these thresholds mean the same thing here as they do there.
+#
+# GATE AMENDMENT (2026-08-12), inherited verbatim. The ratio rules start at
+# iteration 5000 and the cap is 10. This changes WHEN the gate is valid, not how
+# much injection is tolerated in steady state. The NaN/Inf hard-stop is NOT
+# windowed and remains active from iteration 1.
+dino_stability:
+  enabled: true
+  injection_ratio_max: 10.0       # abort rule 1
+  ratio_rules_start_iter: 5000    # ratio rules enforced from here; measured from iter 1
+  reference_iter: 5000            # abort rule 2 baseline, persisted across resume
+  growth_factor_max: 10.0         # abort rule 2
+  log_freq: 1000
+  devlog: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/devlogs/concat_render_fixed128_spatial_B6_latent.md
+
+path:
+  pretrain_network_g: ~     # from scratch. Never the 292k checkpoint.
+  strict_load_g: true
+  resume_state: ~           # auto-resume scans experiments/<name>/training_states/
+
+train:
+  total_iter: 300000
+  warmup_iter: -1
+  use_grad_clip: true
+
+  scheduler:
+    type: CosineAnnealingRestartCyclicLR
+    periods: [92000, 208000]
+    restart_weights: [1,1]
+    eta_mins: [0.0003, 0.000001]
+
+  mixing_augs:
+    mixup: false
+    mixup_beta: 1.2
+    use_identity: true
+
+  optim_g:
+    type: AdamW
+    lr: !!float 3e-4
+    weight_decay: !!float 1e-4
+    betas: [0.9, 0.999]
+
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1
+    reduction: mean
+
+val:
+  window_size: 8
+  val_freq: !!float 4e3
+  save_img: false
+  rgb2bgr: true
+  use_image: true          # val PSNR is the 8-bit path; test PSNR is 16-bit
+  max_minibatch: 8
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+
+logger:
+  print_freq: 1000
+  save_checkpoint_freq: !!float 2e3
+  use_tb_logger: true
+  tb_logger_dir: tb_logger/Holo_concat_render_fixed128_spatial_B6_latent   # decorative
+  wandb:
+    project: ~
+    resume_id: ~
+
+dist_params:
+  backend: nccl
+  port: 29500
