@@ -1,4 +1,4 @@
-# HANDOVER — Phase 3 restoration (E0 / E1-addition), as of 2026-08-14
+# HANDOVER — Phase 3 restoration, as of 2026-08-21
 
 Read this + `CONTEXT.md` + `DEVLOG.md` at the start of a new session. This file
 covers the **Phase-3 restoration experiments** specifically; `CONTEXT.md` is the
@@ -15,12 +15,47 @@ project-wide primer and `DEVLOG.md` is the append-only step log.
 
 ## One-line status
 
-**Phase 3 is decided, on the locked test split.** All three original arms
-finished 300k and were evaluated on test (n=338): reading the **render** gains
-**+2.208 dB**, reading the **noisy radar** *loses* **0.577 dB** against no prior
-at all. Both clear/miss the pre-registered thresholds on *both* protocols. A
-fourth arm (global-render) is at 90k/300k testing whether the render's value is
-spatial. Nothing in Phase 3 is committed to git yet.
+**Phase 3's source and form questions are decided; the operator question is not
+what it looked like.** Six arms have run. Reading the **render** gains **+2.208
+dB** on test/full256 and reading the **noisy radar** *loses* **0.577 dB**, both
+against no prior at all — that result is unchanged and stands. What changed on
+2026-08-21 is the fusion axis: **crossattn-render's published −3.150 dB is a
+4,000-iteration model**, and the same arm's final checkpoint **beats E0 by +2.00
+dB at its 128 training scale** while losing 7.56 dB at full 256. A seventh arm,
+**affm-render** (layer count, {3,6,9,12} + AFFM), is built, fully verified and
+**not launched**. **priorquery-render is running** (job 1785021).
+
+**Everything in Phase 3 is now committed** (it was not, on 2026-08-14).
+
+---
+
+## READ FIRST — the two things most likely to be misquoted
+
+**1. crossattn-render is not a clean operator failure.** Same weights, val n=339:
+
+| checkpoint | crop128 | full256 |
+|---|---|---|
+| E0-Fixed 268k | 19.816 | 22.077 |
+| crossattn **4k** (the selected one) | 18.284 | 18.563 |
+| crossattn **178k** (final) | **21.812 (+2.00)** | **14.517 (−7.56)** |
+
+Checkpoint selection uses the training-time **full-256** validation — the one
+regime this arm cannot do — so it selected iteration 4,000 out of 179,000, and
+every published crossattn number comes from that model. This is exactly the
+**pre-registered matched-128 escape clause**, and it was never invoked. Using
+the last checkpoint instead is *not* a legitimate selection rule either, so
+nobody should quote +2.00 dB as a result — it is a diagnostic fact that the
+selection metric and in-distribution performance are **anti-correlated** for
+this arm.
+
+**2. No paper in our reference set does what our attention arms do.**
+Perceive-IR's prior is `F_l ∈ ℝ^{1×768}` — a global vector — and PGM's
+FiLM-style affine runs *before* PGCA, so the attention query is the
+prior-modulated feature, not a prior token grid. Whether PGCA's softmax is
+spatial or Restormer-MDTA channel attention is **not stated in the paper**; it
+does not matter, because a 1×768 prior has no spatial tokens to attend over
+either way. Both our attention arms are novel constructions. DSGIR is paywalled
+and was **not** verified — what the repo says about it is second-hand.
 
 ## THE RESULT — FINAL, on the locked TEST split (n=338)
 
@@ -96,35 +131,24 @@ validation, adding it later contaminates nothing.
 
 ---
 
-## 1. Run status (verified 2026-08-14)
+## 1. Run status (verified 2026-08-21 22:30)
 
-| arm | experiment name | state |
-|---|---|---|
-| **E0** baseline | `Holo_E0_fixed128_baseline` | **300k DONE**, evaluated |
-| **E1-addition-noisy** | `Holo_E1_addition_noisy_fixed128_spatial_B6_latent` | **300k DONE**, evaluated |
-| **E1-addition-render** | `Holo_E1_addition_render_fixed128_spatial_B6_latent` | **300k DONE**, evaluated |
-| **global-render** | `Holo_global_addition_render_fixed128_B6_latent` | **90k / 300k**, job 1776459 on a100, successor 1776464 queued |
+| arm | iters | checkpoint used | test full256 | vs E0 | state |
+|---|---|---|---|---|---|
+| **E0-Fixed** | 300k | 268k | 21.873 | baseline | done |
+| **E1-addition-noisy** | 300k | 128k | 21.296 | −0.577 | done |
+| **E1-addition-render** | 300k | 204k | **24.081** | **+2.208** | done |
+| **global-render** | 300k | 60k | 20.589 | −1.284 | done — pooling HURTS |
+| **concat-render** | 300k | 292k | 24.065 | +2.193 | done — ties addition |
+| **crossattn-render** | 179k | 4k | 18.723 | −3.150 | **stopped; see READ FIRST** |
+| **priorquery-render** | running | — | — | — | job 1785021, successor 1786468 |
+| **affm-render** | not launched | — | — | — | built + verified, ready |
 
-All chains behaved: each completed arm wrote `TRAINING_DONE` and cancelled its
-own successor. Chain counts: 2 jobs each for the completed arms, 1 so far for
-global-render.
-
-**Caveats that stay attached to every number above.** Single seed; one layer
-(B6); one fusion (zero-init 1×1 residual at the latent); one dataset. The 16-bit
-evaluation PSNR is **not** comparable to the 8-bit training-time val PSNR,
-despite similar values. Checkpoint selection used validation only, which is what
-makes the test read legitimate.
-
-### A log-parsing trap that has already caused one wrong claim
-
-`grep 'iter:'` over the training logs matches **`total_iter: 300000`** in the
-config dump at the head of every log, and `train_*.log` files do not sort
-chronologically by shell glob. Both together made three finished arms look like
-they were stuck at 182k. **Use the checkpoint files as ground truth for
-progress** (`ls experiments/<name>/models/`), and anchor any log regex as
-`(?<!total_)iter:\s*([\d,]+),`.
-
----
+**crossattn-render's stale lock.** `experiments/Phase3_chain_state_Holo_crossattn_render_.../RUNNING_JOB`
+still contains `1784331` and there is no `TRAINING_DONE`. The job was scancel'd
+by hand at 2026-08-21T08:45:04, 16 min before walltime; its successor 1784336
+was cancelled in the same second. **Leave the lock alone** — it is a record, and
+deleting it would let the chain auto-resume a dead arm.
 
 ## 2. What each arm is
 
@@ -158,6 +182,22 @@ E1-addition-render:
 - **The render is normally available** in this pipeline, so E1-render is a
   usable method, not merely an oracle. Say so when reporting it.
 
+### The four later arms, in one line each
+
+| arm | the one thing that differs | params vs E0 |
+|---|---|---|
+| **global-render** | the centered grid is POOLED to `[B,768,1,1]` and broadcast — tests whether the render's value is spatial | +295,296 |
+| **concat-render** | `fuse(cat([F, D]))`, a 1x1 1152→384, replacing the addition; `P` deleted | +442,752 |
+| **crossattn-render** | `F + W_o(MHCA(Q=F, K=V=D))` — radar queries, DINO keys/values. **Direction reversed from the papers on purpose** | +888,576 |
+| **priorquery-render** | `Q=D, K=V=F` — the papers' direction. DINO content never reaches the output; it is a ROUTER over radar positions, not a content source | +741,120 |
+| **affm-render** | LAYER COUNT: {3,6,9,12} instead of {6}, per-layer centering, AFFM softmax across layers. Injection UNCHANGED | +298,372 |
+
+**The fusion-operator verdict, and its caveat.** concat ties addition within
+bootstrap CIs on three of four cells for +50% parameters; crossattn and (predicted)
+priorquery fail. So the operator does not matter — **but** the crossattn scale
+reversal in READ FIRST means that conclusion rests, for that arm, on a
+4,000-iteration model. State the caveat when you state the verdict.
+
 ### Layer lock — B6, with a documented tension
 
 B6 (0-indexed **5**) locked on the pre-registered primary criterion: centered
@@ -169,9 +209,16 @@ gap is *wider* at 128 than at 256. That is a criterion conflict, not a
 measurement error. A **B3 run under an identical recipe is pre-registered** as
 the follow-up so it is settled empirically, not by argument.
 
+**New, weak, and worth watching:** in affm-render's 6000-iteration smoke run the
+only layer whose AFFM weight GAINS is **B3** (0.250 → 0.334; B6 −0.018, B9
+−0.039, B12 −0.027). That is the scene-advantage layer winning on an entirely
+different objective. It is 6k of 300k with single-batch measurements and a
+visibly noisy trajectory — **not** evidence yet, but it is the second
+independent hint pointing the same way.
+
 ---
 
-## 3. Key files (none of this is committed yet — see §6)
+## 3. Key files (all committed as of 2026-08-21 — see §6)
 
 **Architecture / model / data**
 - `basicsr/models/archs/restormer_dino_spatial_arch.py` — `RestormerDinoSpatial`.
@@ -198,10 +245,40 @@ the follow-up so it is settled empirically, not by argument.
 - `means/` — four centering means (see §4).
 - `scripts/dino_shared.py` — **the single sanctioned DINO extraction path.**
   Every Phase-3 consumer calls this and nothing else.
-- `scripts/chain_core.sh` + `chain_E0.sh` / `chain_E1_addition_noisy.sh` /
-  `chain_E1_addition_render.sh` — shared logic, separate identity per arm.
+- `scripts/chain_core.sh` + one `chain_<arm>.sh` per arm — shared logic,
+  separate identity per arm. **Never override `--partition`**: `ARM_PART` is read
+  by every successor, so an override moves only the first job and silently splits
+  a run across TF32 (a100) and non-TF32 (v100) regimes.
 - `results/wo1_verification/`, `results/wo2_implementation/` — the verification
   evidence. **Do not modify.**
+
+**The affm-render arm** (built 2026-08-21, not launched)
+- `basicsr/models/archs/restormer_dino_affm_render_arch.py` — `RestormerDinoAffmRender`
+  + `DinoAffm`. Overrides `dino_prior` only; the inherited forward does the rest.
+  Own `_load_layer_mean` (the parent's guard validates against B6 and correctly
+  refuses a B3 mean — it was parameterised, not weakened).
+- `configs/affm_render_fixed128_spatial_L3691_latent.yml` — differs from
+  addition-render's in **15 of 109 keys**, all identity / type / layer set / mean
+  paths. **The per-layer mean keys must stay QUOTED strings**; bare ints crash
+  `basicsr/utils/options.py:109` at startup.
+- `scripts/compute_affm_means.py` — imports `compute_production_means` and rebinds
+  only its block constants, so the means are produced by the same code objects.
+- **To launch it** (submit ONCE; it self-chains and auto-resumes):
+  ```bash
+  sbatch dino_analysis_phases/phase3_restoration/scripts/chain_affm_render.sh
+  ```
+- `scripts/smoke_tests_affm_render.py` (72 checks), `make_smoke6k_affm_render.py`
+  (+ `--iters/--name/--batch/--cpu/--no-val/--affm-freq`), `run_smoke6k_affm_render.sh`,
+  `run_peak_vram_affm.sh`, `dump_affm_weight_maps.py` (run AFTER training, at
+  5k/100k/300k).
+
+**The crossattn diagnosis** — `dino_analysis_phases/phase4_crossattn_diagnosis/`
+- `scripts/forensics_and_series.py` — SLURM forensics + val curves + the logged
+  attention statistics.
+- `scripts/attention_probe.py` — dumps the real 256x256 attention matrices and
+  per-head statistics from a checkpoint. **This is the script to point at eval256.**
+- `scripts/inference_interventions.py` — the four interventions; self-checks
+  against the published numbers before reporting anything.
 
 ---
 
@@ -297,62 +374,42 @@ new identity for any run it would apply to.
 
 ---
 
-## 6. Git state — read this before committing anything
+## 6. Git state
 
-Branch **`dino_e2`**. Last commit `4e37beb` (DEVLOG Step 28). **The entire
-Phase-3 body of work is untracked:**
+Branch **`dino_e2`**, which has **no upstream tracking branch** — pushes must
+name the remote explicitly (`git push -u origin dino_e2`). Remotes: `origin` =
+TahaHussain121/Restormer (ours), `upstream` = swz30/Restormer (do not push).
 
-```
-?? REPO_INVESTIGATION_REPORT.md
-?? basicsr/data/paired_radar_render_stacked_dataset.py
-?? basicsr/models/archs/restormer_dino_render_arch.py
-?? basicsr/models/archs/restormer_dino_spatial_arch.py
-?? basicsr/models/image_restoration_dino_model.py
-?? dino_analysis_phases/phase3_restoration/
- M .claude/settings.json
-```
+**Phase 3 is committed as of 2026-08-21**, in separate commits per arm and per
+piece of work so nothing is mixed together. What is *not* and never will be in
+git, because `.gitignore` excludes it: `experiments/`, `tb_logger/`, `**/results/`,
+`*.pth`, `*.pt`, `*.png`, `*.log`, `*.state`. **Checkpoints, TensorBoard curves,
+prediction images, figures and the centering-mean tensors exist on disk only** —
+exactly how the E1-FiLM runs became unrecoverable (DEVLOG Step 28). The mean
+`*_meta.json` files ARE tracked, so a lost `.pt` can at least be recomputed with
+a known recipe.
 
-Three live runs depend on these files on disk. **Committing is safe; editing is
-not** — a change to `restormer_dino_spatial_arch.py` is picked up by the *next
-resume* of both E1 arms, not at the next iteration, so it lands silently hours
-later. Note also that `experiments/` and `tb_logger/` are **gitignored**, so
-checkpoints and TensorBoard curves exist on disk only — exactly how the E1-FiLM
-runs became unrecoverable (Step 28).
+**Committing is safe; editing is not.** A change to a shared arch is picked up by
+the *next resume* of every arm that uses it, not at the next iteration, so it
+lands silently hours later. New arms get **new files with new class names** —
+never a layer-list argument or a mode flag bolted onto a finished arm's arch.
 
 Commits on this repo take **no `Co-Authored-By` trailer**.
 
----
+## 7. Open items
 
-## 7. Open items — none started, all need a decision
-
-| item | status |
-|---|---|
-| ~~**FINAL TEST EVALUATION**~~ — three completed arms, both protocols | **DONE 2026-08-14** (jobs 1776745-1776750) |
-| **global-render** — launched 2026-08-14, at 88k/300k. Early signal: below baseline, which would say the render's value is *spatial* | in flight |
-| **global arm on the 1e5 (noisy) source** — the same pooling against E1-addition-noisy | requested earlier, not implemented |
-| **E1-noisy's early peak** — best at 128k then declining, vs 268k/204k for the others | observed, not investigated |
-| **Co-inflation gate rule** (§5) | proposed, not implemented |
-| **B3 run** under an identical recipe | pre-registered |
-| **Concat-then-project** fusion variant | pre-registered |
-| **Token-shuffle control** for the 0.524 different-scene floor | not run |
-| ~~**Baseline re-characterisation** on E0-Fixed~~ | **DONE 2026-08-13** (jobs 1775533/1775534, val n=339) |
-
-**The re-characterisation is now done, and the premise held.** E0-Fixed keeps
-**0.200** of the target's HF energy against **0.216** for the old progressive
-baseline — marginally *worse*, not better. Over-smoothing is the headline
-weakness of this baseline too, so motivation and results now describe the same
-model. **From here quote 0.200 (full256, val, n=339), never 0.216.**
-
-Measured on `net_g_268000.pth` (best val): PSNR 22.077 / SSIM 0.783 whole-image,
-17.978 / 0.569 on the object mask, Laplacian ratio 0.284, Sobel ratio 0.756.
-The Sobel-vs-Laplacian gap is the finding — first-order edges survive, second-order
-detail does not. Two things not to misquote: the crop128 HF ratio of 0.910 has a
-std of 0.475 (the HF band is nearly empty on a 128 crop — full256 is the figure of
-record), and this evaluation PSNR is the 16-bit path, **not** comparable to the
-8-bit training-time val PSNR. Test split still untouched, deliberately, so all
-arms can be evaluated together under one protocol.
-
----
+| item | status | cost |
+|---|---|---|
+| **LAUNCH affm-render** — everything verified, command in §3 | ready, not launched | 300k a100 |
+| **crossattn at eval256** — run the attention probe on `net_g_178000` at 32x32 and read entropy/diag over the 1024x1024 matrix. Separates "the softmax denominator changed" from "the routing is tied to 16x16 geometry" | **the cheapest open item** | ~2 min |
+| **Checkpoint-selection rule** — is best-val-on-full256 right for arms trained at 128? It is PRE-REGISTERED, so changing it after seeing crossattn's reversal needs a written decision, not drift | decision needed | — |
+| **Crop-size feature drift study** (DSGIR Fig. 10 analogue on radar) | specified, never started; blocked on 3 decisions incl. that the 0.6694/+0.1453 reference numbers are the **1e5↔1e7** pair, not render↔1e5 | 1 sbatch |
+| **B3 run** under an identical recipe | pre-registered, never run — and the affm 6k smoke's early B3 preference makes it more interesting, not less | 300k |
+| **Co-inflation gate rule** (>5x vs the 5k reference on either norm) | proposed, not implemented; the hole is now confirmed quantitatively (15x/14x growth, ratio never left 0.52–0.91) | small |
+| **Token-shuffle control** for the different-scene floor | not run | small |
+| **global arm on the 1e5 source** | requested, not implemented | 300k |
+| **E1-noisy's early peak** (best at 128k) | observed, not investigated | — |
+| **priorquery-render** | running; pre-registered prediction is that it lands closer to E0 than to addition-render | in flight |
 
 ## 8. Standing rules for this work
 

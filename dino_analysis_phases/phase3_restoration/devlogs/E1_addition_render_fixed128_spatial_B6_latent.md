@@ -361,3 +361,34 @@ the render arm is drawn here.
 predictions, `dino_stats.csv` (latent_norm, projected_norm, injection_ratio per
 image), `shuffle_manifest.csv`, `per_image_A_vs_B.csv`, `control_summary.json`,
 `control_metadata.json`, `logs/control_1776802.out`.
+
+---
+
+## 2026-08-20 — INPUT BASELINE AND THE MASKED METRIC, added for reporting
+
+Two reporting gaps closed. Neither is a new experiment; both re-use
+`Deraining_Holo/masked_metrics.py` unchanged.
+
+**The do-nothing floor.** The raw 1e5 input, scored against the 1e7 target on
+the same images with the same metric:
+
+| cell | input PSNR | input SSIM |
+|---|---|---|
+| full256 / val | 12.410 | 0.3392 |
+| full256 / test | 12.354 | 0.3353 |
+| crop128 / val | 12.428 | 0.3263 |
+| crop128 / test | 12.411 | 0.3211 |
+
+So on test/full256: **E0 is +9.518 dB over the input** (improving 338/338
+images) and addition-render is **+11.727**. The prior contributes roughly 19% of
+the total improvement over doing nothing — worth stating so the contribution is
+not oversold. Per-image CSVs under
+`results/comparisons/input_baseline/`.
+
+**Full-image vs masked.** The frames are ~31% object at full256 and ~58% at
+crop128, so full-image PSNR is inflated by easy background by ~4.3 dB and ~2.0
+dB respectively. That gap is near-constant across arms, so it is a property of
+the framing rather than of any model — but it means **crop128 and full256
+numbers must never be compared to each other**, only across arms within one
+protocol. Masked PSNR is the fairer between-arm number since it cannot be won by
+getting empty space right. All comparison figures now carry both.

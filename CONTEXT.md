@@ -149,6 +149,45 @@ All config work happened on fived08; the actual first completed training run was
       progressive baseline (22.405 test) by +1.676 dB. E0-Fixed (21.873) is 0.53 dB BELOW
       that old baseline — exactly as registered in advance, since it never trains at 256.
       Checkpoints: E0 268k, E1-noisy 128k, E1-render 204k, all selected on VALIDATION.
+- [x] *** FUSION AXIS: THREE MORE ARMS, NO OPERATOR ADVANTAGE FOUND (2026-08-21) ***
+      test full256, best-val checkpoint, all vs E0-Fixed 21.873:
+        addition-render     24.081  (+2.208)   the reference arm, +295,296 params
+        concat-render       24.065  (+2.193)   +442,752 params  -> STATISTICAL TIE
+        crossattn-render    18.723  (-3.150)   +888,576 params  -> FAILED, removed
+        priorquery-render   queued              +741,120 params
+      concat vs addition paired per-image: +0.023 dB val, -0.016 test, bootstrap
+      95% CIs spanning zero on BOTH; only crop128/test separates (+0.214, CI
+      [+0.099,+0.334]) and still misses the +0.30 dB "meaningful" threshold. For
+      +147,456 parameters. THE FUSION OPERATOR DOES NOT MATTER ON THIS PROBLEM;
+      what matters is the SOURCE (render vs 1e5) and the FORM (spatial vs pooled).
+      crossattn-render (radar queries, DINO K/V) was stopped at 179k: its best
+      validation was iteration 4,000 and it never improved on it. Mechanism is in
+      its own attention statistics -- attn_entropy collapsed 97% (5.52 -> 0.151)
+      while attn_diag_mass reached only 0.27, i.e. it learned CONFIDENT routing to
+      the WRONG positions, which is the named risk of querying from the degraded
+      1e5 latent. Full record in devlogs/crossattn_render_....md.
+- [x] *** THE GATE HAS A HOLE, AND IT HAS NOW FIRED IN PRACTICE ***
+      Through crossattn-render's 179k iterations, latent_norm grew 1,218 -> 20,058
+      and projected_norm 629 -> 16,486 -- both ~16x -- while injection_ratio stayed
+      between 0.5 and 0.85, never near the cap of 10. NO gate rule fired, no
+      STABILITY_FAILURE.json, no NaN. The arm lost 3.15 dB with the gate silent.
+      This is the "co-inflation has no gate rule" item that every Phase-3 devlog
+      lists as open; it is no longer hypothetical. Report it as a finding about
+      the GATE, not only about that arm.
+- [x] MECHANISM OF THE RENDER GAIN, established by two post-hoc controls (val):
+      MISMATCHED RENDER -- feeding another scene's render costs addition-render
+      9.297 dB, 339/339 images worse, below E0's mean on 337/339, per-image
+      correlation to the correct run only r=0.251, while ||P(D)|| is IDENTICAL by
+      construction. Zero render -8.90, train-mean render -9.87. So a WRONG prior
+      is worse than NO prior, and the gain is SCENE-SPECIFIC, not generic
+      regularisation or added capacity. concat-render collapses identically
+      (-9.153), so the fusion change did not alter the mechanism.
+      POOLING -- global-render already showed the gain is SPATIAL: -1.284 dB, i.e.
+      BELOW the no-DINO baseline.
+- [x] The do-nothing floor is now measured: the raw 1e5 input scores 12.354 dB on
+      test/full256. E0 is +9.518 over it (338/338 images improved); the best DINO
+      arm is +11.727. The prior contributes ~19% of the total gain over doing
+      nothing -- state it that way rather than quoting +2.2 dB in isolation.
 - [x] Phase 3 THREE ARMS COMPLETE at 300k, validation numbers (2026-08-14, val n=339, full256):
         E0-Fixed            22.077 dB   HF 0.200   (baseline, best val 22.0749 @268k)
         E1-addition-noisy   21.469 dB   HF 0.280   -0.608 dB, improves only 100/339
@@ -174,7 +213,90 @@ All config work happened on fived08; the actual first completed training run was
       split it sits beside. Do NOT read crop128 HF ratios (~0.9 all arms, std ~0.47).
 - [x] FINAL TEST EVALUATION DONE (jobs 1776745-1776750, both protocols, all three arms).
       Test split now read; global-render will need its own pass when it finishes.
-- [ ] Phase 3 NOT COMMITTED — arch/model/dataset/phase3_restoration/ are all untracked
+- [x] Phase 3 IS committed as of 2026-08-21 (the earlier "NOT COMMITTED" line was stale
+      from 2026-08-14; the archs/model/dataset landed on 2026-08-17, the rest today).
+- [x] *** crossattn-render RE-DIAGNOSED 2026-08-21 — THE EARLIER ENTRY ABOVE IS WRONG
+      ON MECHANISM AND MISLEADING ON MAGNITUDE. Read this one. ***
+      (a) IT WAS NOT KILLED WHILE IMPROVING. Job 1784331 was scancel'd 16 min before
+          walltime, but validation had been FLAT at 14.91 +- 0.41 dB for its last 34
+          val points (132k iterations, trend -0.27 dB/100k). Stopping cost nothing.
+      (b) THE PUBLISHED -3.150 dB IS A 4,000-ITERATION MODEL. Checkpoint selection uses
+          the training-time FULL-256 validation, which is the one regime this arm cannot
+          do, so it selected iteration 4,000 out of 179,000.
+      (c) THE SAME WEIGHTS REVERSE SIGN WITH SCALE (val n=339, uint16):
+            checkpoint      crop128        full256
+            E0-Fixed 268k   19.816         22.077
+            crossattn 4k    18.284         18.563
+            crossattn 178k  21.812 (+2.00) 14.517 (-7.56)
+          At its TRAINING scale the final checkpoint BEATS E0 by 2.00 dB. This is the
+          pre-registered matched-128 escape clause, and nobody invoked it.
+      (d) MECHANISM, from the real attention matrices at 178k (n=12 val crops): the heads
+          are HETEROGENEOUS and the logged scalar averaged them into a misleading summary.
+          head 4 diag_mass 0.933 (93% same-position routing — it re-derived the addition
+          arm); head 2 0.471; heads 1/3 ~0.09; heads 0/5 ~0.01 with 65-74% of all mass on
+          8 of 256 tokens (a pooled global read). NOT "confident routing to the wrong
+          positions" as recorded on 2026-08-20.
+      (e) FOUR INFERENCE-ONLY INTERVENTIONS on net_g_178000 (crop128/val, n=339; the
+          pipeline reproduces the published E0 19.816 and crossattn-4k 18.284 to 0.0005 dB):
+            wrong-scene render  -11.148 dB   73.7% of argmax keys move -> routing DOES
+                                             track render content (refutes "arbitrary")
+            temperature T=2/4    +-0.00      re-softening recovers NOTHING
+            T=inf (uniform)      -8.009      the sharp routing is load-bearing
+            attn = identity      -0.112      the learned routing is worth only 0.11 dB
+            zero heads 0,5       -0.025      the "pooled" heads are neither help nor harm
+          => entropy collapse, pooled heads and "no match signal" are all REFUTED as the
+          cause. What remains: scale transfer of the softmax normalisation (256 -> 1024
+          keys at full256) plus the checkpoint-selection interaction. NOT yet separated
+          from "routing is tied to 16x16 geometry"; the separating test is the attention
+          probe at eval256 on net_g_178000.
+      Full record: dino_analysis_phases/phase4_crossattn_diagnosis/.
+- [x] *** THE PAPERS DO NOT DO WHAT OUR ATTENTION ARMS DO. *** Verified from the arXiv
+      HTML on 2026-08-21, not from memory. Perceive-IR's prior is `F_l in R^{1x768}` — a
+      GLOBAL VECTOR per level — and its PGM applies a FiLM-style affine BEFORE PGCA, so
+      the query into the attention is the prior-MODULATED FEATURE, not a prior token grid.
+      Whether PGCA's softmax is spatial or Restormer-MDTA channel attention could NOT be
+      settled: the paper never states the reshape, though it writes the equation in MDTA
+      notation (hatted Q/K/V, learnable alpha) and cites Restormer. It does not matter for
+      the conclusion: with a 1x768 prior there ARE no prior spatial tokens to attend over,
+      so NO paper in our reference set does spatial-token cross-attention between a prior
+      grid and a feature grid. Both our attention arms are novel constructions, not
+      reimplementations — say so in the thesis. DSGIR (Neurocomputing 696) is paywalled
+      and was NOT verified; what the repo records about it is second-hand.
+- [x] THE GATE HOLE IS CONFIRMED QUANTITATIVELY: crossattn's latent_norm grew 15x and
+      projected_norm 14x against the gate's own 5k reference, while injection_ratio never
+      left 0.52-0.91 (cap 10). Only the RATIO is gated. Also note the ratio never even
+      distinguished the failing arm: addition 0.89-1.47, concat 0.93-1.49, crossattn
+      0.52-0.91, E1-noisy 1.90-4.46.
+- [x] affm-render BUILT AND FULLY VERIFIED, NOT LAUNCHED (2026-08-21). The LAYER-COUNT
+      ablation: DINO read at {3,6,9,12} instead of {6}, each centered with its own
+      train-only mean, fused by DINOLight's AFFM (arXiv 2603.12579, cited not claimed) —
+      a per-position softmax ACROSS LAYERS whose output stays 768 channels, so the
+      injection stays the SAME zero-init Conv2d(768,384,1) addition. +298,372 params vs
+      addition-render's +295,296 = +1.04%, so a decline across the layer ladder cannot be
+      blamed on capacity (a naive 4-layer concat would have cost 1,180,032).
+      Verified: 72/72 architectural checks (CPU+GPU); B6 mean recomputed through the new
+      path matches addition-render's existing file to 1.2e-06 / 1.9e-06 (production file
+      never overwritten); step-0 output bit-identical to E0; 494/494 trunk tensors
+      byte-identical to E0 (RNG fence); peak VRAM 25,166 MiB vs addition's 25,117 on the
+      same card (ratio 1.0020); 6000-iteration GPU smoke rc=0 with the gate ENFORCED over
+      5000-6000, no STABILITY_FAILURE, injection_ratio settling at 0.94-1.19 against
+      addition's ~1.03, val 22.06 dB at 6k.
+      PRE-REGISTERED PREDICTION: multi-layer does NOT beat single-layer B6 by >0.10 dB.
+      Contrary evidence recorded in advance: DINOLight's own ablation found multi-layer
+      DID win (22.207 -> 22.414 -> 22.600 with AFFM).
+      EARLY, NOISY, DO NOT OVERSTATE: in the 6k smoke the only layer GAINING weight is
+      B3 (0.250 -> 0.334), which is the layer that wins the scene-advantage criterion —
+      the documented tension behind the B6 lock. 6k of 300k, single-batch measurements.
+- [x] TWO BUGS CAUGHT BY THE PRE-LAUNCH SMOKE RUNS, both invisible to the architectural
+      suite because they live in the basicsr integration path:
+      (1) bare INTEGER yaml keys in the per-layer mean maps crashed
+          basicsr/utils/options.py:109 (`k + ': '`) during init_loggers — the real 300k
+          job would have died in its first seconds. Fixed by quoting the keys in the
+          affm config; options.py NOT touched.
+      (2) the observation publish condition `count % freq == 1` NEVER fires at freq == 1,
+          which silently produced a run with no AFFM observations at all. Fixed to
+          `(count - 1) % freq == 0` in the affm arch only. The real config (freq 5000) was
+          never affected; crossattn carries the same idiom at 5000 and was left alone.
 
 Config naming convention:
   Holo_Baseline_Restormer.yml       — pure Restormer, no DINOv2
@@ -195,7 +317,27 @@ Dataset note: TWO datasets are now in play.
                                 no test split. train_/val_verynoisy built as symlinks from
                                 splits/*.txt (see DEVLOG Step 19).
 
-Last change: 2026-08-14 — PHASE 3 HAS ITS ANSWER. All three original arms finished 300k and
+Last change: 2026-08-21 — THREE THINGS, IN ORDER OF HOW MUCH THEY CHANGE THE STORY.
+
+1. crossattn-render is NOT the clean failure the 2026-08-20 entry describes. The same
+   weights score +2.00 dB over E0 at the 128 training scale and -7.56 dB at full 256, and
+   every published number for that arm came from a 4,000-iteration checkpoint that the
+   selection rule picked BECAUSE the rule measures full-256. This is the pre-registered
+   matched-128 escape clause, unclaimed. It also raises a methodological question the
+   project has to answer deliberately rather than by drift: is best-val-on-full256 the
+   right checkpoint rule for arms trained at 128? Changing it now would be changing a
+   pre-registered rule after seeing results, so it needs a written decision either way.
+
+2. No paper in our reference set does spatial-token cross-attention between a prior grid
+   and a feature grid — Perceive-IR's prior is a 1x768 global vector and its FiLM step runs
+   BEFORE the attention. Both our attention arms are therefore novel constructions, and
+   "it works for them" was never evidence that it should work for us.
+
+3. affm-render (layers {3,6,9,12}, AFFM fusion, addition injection, +1.04% params over
+   addition-render) is built, verified end to end and NOT launched. Two bugs were caught
+   before launch, one of which would have killed the 300k run at startup.
+
+Prior (2026-08-14) — PHASE 3 HAS ITS ANSWER. All three original arms finished 300k and
 were evaluated on val/full256 (n=339), best-validation checkpoint each. The DINO source is
 the whole story:
 
