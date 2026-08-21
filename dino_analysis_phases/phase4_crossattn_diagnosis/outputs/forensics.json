@@ -1,0 +1,123 @@
+{
+  "chain_state": {
+    "CHAIN_COUNT": "1",
+    "RUNNING_JOB": "1784331"
+  },
+  "sacct": [
+    [
+      "1784331",
+      "p3chain_xatt",
+      "CANCELLED by 214675",
+      "0:0",
+      "22:43:46",
+      "23:00:00",
+      "2026-08-20T10:01:18",
+      "2026-08-21T08:45:04"
+    ],
+    [
+      "1784331.batch",
+      "batch",
+      "CANCELLED",
+      "0:15",
+      "22:43:47",
+      "",
+      "2026-08-20T10:01:18",
+      "2026-08-21T08:45:05"
+    ],
+    [
+      "1784331.extern",
+      "extern",
+      "COMPLETED",
+      "0:0",
+      "22:43:47",
+      "",
+      "2026-08-20T10:01:18",
+      "2026-08-21T08:45:05"
+    ],
+    [
+      "1784336",
+      "p3chain_xatt",
+      "CANCELLED by 214675",
+      "0:0",
+      "00:00:00",
+      "23:00:00",
+      "None",
+      "2026-08-21T08:45:04"
+    ],
+    [
+      "1784337",
+      "p3chain_xatt",
+      "CANCELLED by 214675",
+      "0:0",
+      "00:00:00",
+      "23:00:00",
+      "None",
+      "2026-08-20T10:02:42"
+    ]
+  ],
+  "chain_log_lines": [
+    "[chain] queued successor job 1784336 on a100 (afterany:1784331)",
+    "[2026-08-21T08:45:04.132] error: *** JOB 1784331 ON tg093 CANCELLED AT 2026-08-21T08:45:04 DUE to SIGNAL Terminated ***",
+    "= Requested resources:  for 23:00:00",
+    "= Elapsed runtime    : 22:43:46"
+  ],
+  "val": {
+    "best_iter": 4000,
+    "best": 18.5674,
+    "last_iter": 176000,
+    "last": 15.0309,
+    "plateau_mean": 14.907767647058822,
+    "plateau_std": 0.41465186107295576,
+    "plateau_slope_db_per_100k": -0.2718376623376647
+  },
+  "attn": {
+    "entropy_first": 5.4897,
+    "entropy_last": 0.15145,
+    "diag_first": 0.0037891,
+    "diag_last": 0.27301,
+    "diag_max": 0.27601,
+    "n_measurements": 39
+  },
+  "ratios": {
+    "addition-render": {
+      "first": 1.406995,
+      "last": 1.023295,
+      "min": 0.887086,
+      "max": 1.469137,
+      "latent_first": 565.8165,
+      "latent_last": 8782.57,
+      "projected_first": 796.1008,
+      "projected_last": 8987.16
+    },
+    "concat-render": {
+      "first": 1.276497,
+      "last": 1.168749,
+      "min": 0.9261322,
+      "max": 1.488289,
+      "latent_first": 621.171,
+      "latent_last": 6868.058,
+      "projected_first": 792.9229,
+      "projected_last": 8027.035
+    },
+    "E1-noisy": {
+      "first": 4.049062,
+      "last": 2.042192,
+      "min": 1.900745,
+      "max": 4.461668,
+      "latent_first": 215.3023,
+      "latent_last": 5189.933,
+      "projected_first": 871.7723,
+      "projected_last": 10598.84
+    },
+    "crossattn-render": {
+      "first": 0.5742185,
+      "last": 0.8237247,
+      "min": 0.5168151,
+      "max": 0.9055871,
+      "latent_first": 606.5404,
+      "latent_last": 21060.86,
+      "projected_first": 348.2867,
+      "projected_last": 17348.35
+    }
+  }
+}
