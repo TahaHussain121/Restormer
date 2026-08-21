@@ -1,0 +1,197 @@
+# =============================================================================
+# priorquery-render — the DIRECTION counterpart of crossattn-render.
+#
+# crossattn-render   Q = radar latent F,  K = V = DINO D   (our direction)
+# priorquery-render  Q = DINO D,          K = V = radar F  (Perceive-IR's PGCA,
+#                                                            inherited by DSGIR)
+#
+# The pair exists to isolate DIRECTION as a factor. This file is
+# crossattn_render_fixed128_spatial_B6_latent.yml with ONLY the fusion module
+# and the per-arm output paths changed; the machine-generated key-by-key diff is
+# reproduced in the devlog.
+#
+#   D : [B,768,16,16] -> 256 QUERY tokens, dim 768   (verified by real forward)
+#   F : [B,384,16,16] -> 256 key/value tokens, dim 384
+#   W_q 768->384, W_k 384->384, W_v 384->384, W_o 384->384 (ZERO-INIT), 6 heads,
+#   pre-LayerNorm on queries (768) and keys/values (384), both affine.
+#
+# WHAT IS CONCEPTUALLY DIFFERENT: the attention output is a re-mix of RADAR
+# values. DINO content never reaches the output directly -- it enters ONLY
+# through the softmax weights. DINO is a ROUTER over radar positions, not a
+# content source. There is deliberately NO second path injecting D (no concat,
+# no residual P(D)): routing-only is the hypothesis under test.
+#
+# THE OUTPUT TOKEN COUNT FOLLOWS THE QUERY, i.e. the DINO grid. The residual add
+# is well defined only because that grid is 16x16, matching the latent. The
+# module raises rather than interpolating, padding or cropping if that ever
+# stops being true.
+#
+# PARAMETERS: +741,120 over E0 (W_q 295,296 + W_k 147,840 + W_v 147,840 +
+# W_o 147,840 + LN_q 1,536 + LN_kv 768). NOT parameter-matched to
+# crossattn-render's 888,576: there both K and V came from the wide 768 side,
+# here only Q does. The ladder is now
+#   addition 295,296 < concat 442,752 < prior-Q 741,120 < radar-Q 888,576
+# Recorded, not corrected.
+#
+# injection_ratio DOES NOT MEAN THE SAME THING IN THIS ARM: its numerator is
+# built from RADAR values, not DINO features. Logged under the same tags for
+# continuity; NOT comparable to the other arms. See the devlog.
+#
+# LAYER LOCK unchanged: B6 (0-indexed 5). 1e7 IS TARGET ONLY.
+# =============================================================================
+
+name: Holo_priorquery_render_fixed128_spatial_B6_latent
+model_type: ImageCleanModelDinoSpatial
+scale: 1
+num_gpu: 1
+manual_seed: 100
+
+datasets:
+  train:
+    name: TrainSet
+    type: Dataset_PairedImage_uint16_RenderStacked
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_verynoisy
+    dataroot_render: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_renders_blackbg
+    geometric_augs: true
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    use_shuffle: true
+    num_worker_per_gpu: 2
+    batch_size_per_gpu: 8
+
+    ### ---------- FIXED 128 crop, constant batch, one stage ----------
+    mini_batch_sizes: [8]
+    iters: [300000]
+    gt_size: 256        # dataset-level crop: no-op on native 256x256 images
+    gt_sizes: [128]     # train.py sub-crop: the ACTUAL patch the network sees
+    ### ---------------------------------------------------------------
+
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    name: ValSet
+    type: Dataset_PairedImage_uint16_RenderStacked
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_verynoisy
+    dataroot_render: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_renders_blackbg
+    io_backend:
+      type: disk
+
+network_g:
+  type: RestormerDinoPriorQueryRender
+  inp_channels: 1
+  out_channels: 1
+  dim: 48
+  num_blocks: [4,6,6,8]
+  num_refinement_blocks: 4
+  heads: [1,2,4,8]
+  ffn_expansion_factor: 2.66
+  bias: False
+  LayerNorm_type: WithBias
+  dual_pixel_task: False
+
+  # ---------------- DINO guidance branch (the ONLY difference) --------------
+  dino_enabled: true
+  dino_model: dinov2_vitb14
+  dino_block: 6                 # 1-indexed B6 == 0-indexed 5 (asserted in code)
+  dino_frozen: true             # requires_grad False + eval() enforced in arch
+  dino_source: render          # THE ONE SCIENTIFIC CHANGE: DINO sees the render
+  dino_injection: latent        # inp_enc_level4, BEFORE the 8 latent blocks
+  dino_fusion: priorquery       # THE ONE FUNCTIONAL CHANGE vs crossattn: DIRECTION
+  dino_attn_heads: 6            # 384 / 64 == 6, exact
+  dino_attn_stats_freq: 5000    # how often attn_entropy / attn_diag_mass are measured
+  dino_projection: conv1x1      # kept for the parent's contract check; the fusion
+                                # is the attention module, W_o is 384->384 Linear
+  dino_init: zero               # W_o weight AND bias zero -> injected == 0 at step 0
+  dino_embed_dim: 768
+  dino_default_mode: train128   # explicit regime; never inferred from tensor size
+  dino_mean_train128: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_train128_dino224_mean.pt
+  dino_mean_eval256: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_eval256_dino448_mean.pt
+  # --------------------------------------------------------------------------
+
+# Continuous abort gate (Work Order 2, Step 5). Hard stop at ANY iteration.
+# Rules 3 and 4 (E1-vs-E0 val PSNR, loss divergence) are cross-run and live in
+# phase3_restoration/scripts/stability_gate.py, run every ~10k iterations.
+#
+# GATE AMENDMENT (2026-08-12). The ratio rules now start at iteration 5000 and
+# the cap is 10. This changes WHEN the gate is valid, not how much injection is
+# tolerated in steady state: the 5k diagnostic showed injection_ratio plateaus
+# at 2.3-6.6 and drifts DOWN after iter 1000, so the old 0.5 cap was firing on
+# the startup transient of a zero-initialised projection, not on a pathology.
+# The NaN/Inf hard-stop is NOT windowed and remains active from iteration 1.
+dino_stability:
+  enabled: true
+  injection_ratio_max: 10.0       # abort rule 1 (was 0.5)
+  ratio_rules_start_iter: 5000    # ratio rules enforced from here; measured from iter 1
+  reference_iter: 5000            # abort rule 2 baseline, persisted across resume
+  growth_factor_max: 10.0         # abort rule 2
+  log_freq: 1000
+  devlog: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/devlogs/priorquery_render_fixed128_spatial_B6_latent.md
+
+path:
+  pretrain_network_g: ~     # from scratch. Never the 292k checkpoint.
+  strict_load_g: true
+  resume_state: ~           # auto-resume scans experiments/<name>/training_states/
+
+train:
+  total_iter: 300000
+  warmup_iter: -1
+  use_grad_clip: true
+
+  scheduler:
+    type: CosineAnnealingRestartCyclicLR
+    periods: [92000, 208000]
+    restart_weights: [1,1]
+    eta_mins: [0.0003, 0.000001]
+
+  mixing_augs:
+    mixup: false
+    mixup_beta: 1.2
+    use_identity: true
+
+  optim_g:
+    type: AdamW
+    lr: !!float 3e-4
+    weight_decay: !!float 1e-4
+    betas: [0.9, 0.999]
+
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1
+    reduction: mean
+
+val:
+  window_size: 8
+  val_freq: !!float 4e3
+  save_img: false
+  rgb2bgr: true
+  use_image: true          # val PSNR is the 8-bit path; test PSNR is 16-bit
+  max_minibatch: 8
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+
+logger:
+  print_freq: 1000
+  save_checkpoint_freq: !!float 2e3
+  use_tb_logger: true
+  tb_logger_dir: tb_logger/Holo_priorquery_render_fixed128_spatial_B6_latent   # decorative
+  wandb:
+    project: ~
+    resume_id: ~
+
+dist_params:
+  backend: nccl
+  port: 29500
