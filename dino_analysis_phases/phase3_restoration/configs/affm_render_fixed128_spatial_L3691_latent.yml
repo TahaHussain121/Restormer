@@ -1,0 +1,213 @@
+# =============================================================================
+# affm-render — the LAYER-COUNT ablation of addition-render.
+#
+# THIS FILE IS E1_addition_render_fixed128_spatial_B6_latent.yml WITH EXACTLY
+# FOUR DIFFERENCES, and nothing else changes:
+#   1. name        Holo_affm_render_fixed128_spatial_L3691_latent
+#   2. network_g.type   RestormerDinoSpatialRender -> RestormerDinoAffmRender
+#   3. the layer set    dino_block: 6  ->  dino_layers: [3, 6, 9, 12]
+#                       (+ dino_fusion: affm, + dino_affm_stats_freq)
+#   4. the means        one pair of paths -> one pair PER LAYER
+#                       (dino_mean_train128 / dino_mean_eval256 are kept and
+#                        still point at the B6 files; the arch asserts they are
+#                        byte-identical to the B6 entries in the per-layer maps)
+#
+# Splits, crop protocol, augmentation, seed, Restormer hyper-parameters,
+# optimizer, LR, scheduler, iterations, batch size, loss, validation frequency,
+# metrics, the injection operator and the stability gate are IDENTICAL to
+# addition-render.
+#
+# THE ONE FUNCTIONAL CHANGE. DINO is read at four depths instead of one, each
+# centered with its OWN train-only mean, and the four centered [B,768,16,16]
+# grids are combined by a per-position softmax across layers (DINOLight's
+# Adaptive Feature Fusion Module, arXiv 2603.12579 — adopted and cited, not
+# claimed as a contribution). The result is still 768 channels, so the
+# injection stays the SAME zero-initialized Conv2d(768, 384, 1) residual add at
+# inp_enc_level4. No attention, no second injection point, no gate change.
+#
+# WHY {3,6,9,12} AND NOT DINOLight's {1,6,12} OR THE {1,4,8,12} OF THE OTHER
+# PAPERS: this set CONTAINS B6, so the arm differs from addition-render by
+# layer COUNT alone, and all four depths have a measured fixed-128
+# correspondence on our radar data (WO1 Task 1.3, n=339: B3 0.6091, B6 0.6694,
+# B9 0.5482, B12 0.2337). B1, B4 and B8 have never been measured here.
+#
+# PARAMETER DELTA vs E0 = 298,372  (P 295,296 + four 768->1 scoring convs
+# 3,076). Against addition-render's 295,296 that is +1.04%, so a decline across
+# the layer ladder cannot be attributed to capacity. A naive four-layer concat
+# would have cost 1,180,032 and reintroduced that confound.
+#
+# 1e7 IS TARGET ONLY. Never conditioning, never guidance, never a centering
+# statistic. The render is DINO input and nothing else.
+# =============================================================================
+
+name: Holo_affm_render_fixed128_spatial_L3691_latent
+model_type: ImageCleanModelDinoSpatial
+scale: 1
+num_gpu: 1
+manual_seed: 100
+
+datasets:
+  train:
+    name: TrainSet
+    type: Dataset_PairedImage_uint16_RenderStacked
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_verynoisy
+    dataroot_render: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_renders_blackbg
+    geometric_augs: true
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    use_shuffle: true
+    num_worker_per_gpu: 2
+    batch_size_per_gpu: 8
+
+    ### ---------- FIXED 128 crop, constant batch, one stage ----------
+    mini_batch_sizes: [8]
+    iters: [300000]
+    gt_size: 256        # dataset-level crop: no-op on native 256x256 images
+    gt_sizes: [128]     # train.py sub-crop: the ACTUAL patch the network sees
+    ### ---------------------------------------------------------------
+
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  val:
+    name: ValSet
+    type: Dataset_PairedImage_uint16_RenderStacked
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_verynoisy
+    dataroot_render: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_renders_blackbg
+    io_backend:
+      type: disk
+
+network_g:
+  type: RestormerDinoAffmRender
+  inp_channels: 1
+  out_channels: 1
+  dim: 48
+  num_blocks: [4,6,6,8]
+  num_refinement_blocks: 4
+  heads: [1,2,4,8]
+  ffn_expansion_factor: 2.66
+  bias: False
+  LayerNorm_type: WithBias
+  dual_pixel_task: False
+
+  # ---------------- DINO guidance branch ------------------------------------
+  dino_enabled: true
+  dino_model: dinov2_vitb14
+  dino_block: 6                 # the reference layer; the SET is dino_layers
+  dino_layers: [3, 6, 9, 12]    # THE ONE FUNCTIONAL CHANGE (1-indexed, b1_to_b0)
+  dino_fusion: affm             # AFFM: per-position softmax ACROSS LAYERS
+  dino_affm_stats_freq: 5000    # how often the softmax weights are measured
+  dino_frozen: true             # requires_grad False + eval() enforced in arch
+  dino_source: render           # DINO sees the render, exactly as addition-render
+  dino_injection: latent        # inp_enc_level4, BEFORE the 8 latent blocks
+  dino_projection: conv1x1      # nn.Conv2d(768, 384, 1) -- UNCHANGED
+  dino_init: zero               # zero weight AND zero bias -> P(D) == 0 at step 0
+  dino_embed_dim: 768
+  dino_default_mode: train128   # explicit regime; never inferred from tensor size
+
+  # the reference pair, kept so the parent class is fully configured; the arch
+  # asserts these are byte-identical to the B6 entries below.
+  dino_mean_train128: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_train128_dino224_mean.pt
+  dino_mean_eval256: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_eval256_dino448_mean.pt
+
+  # one train-only [768] mean per (layer, regime). Centering happens BEFORE the
+  # AFFM scoring conv, so the scores read content and not a per-layer offset.
+  #
+  # THE KEYS ARE QUOTED STRINGS, NOT BARE INTEGERS, AND THAT IS LOAD-BEARING:
+  # basicsr/utils/options.py:109 builds its startup dump with `k + ': '`, which
+  # raises TypeError on an int key before iteration 1 is reached. Found by the
+  # CPU integration smoke run; the arch accepts either form (`_key`), so this
+  # is purely to keep basicsr's own option printer happy.
+  dino_means_train128:
+    '3':  /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B3_train128_dino224_mean.pt
+    '6':  /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_train128_dino224_mean.pt
+    '9':  /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B9_train128_dino224_mean.pt
+    '12': /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B12_train128_dino224_mean.pt
+  dino_means_eval256:
+    '3':  /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B3_eval256_dino448_mean.pt
+    '6':  /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_eval256_dino448_mean.pt
+    '9':  /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B9_eval256_dino448_mean.pt
+    '12': /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B12_eval256_dino448_mean.pt
+  # --------------------------------------------------------------------------
+
+# UNCHANGED from addition-render, key for key. No rule is defined on the AFFM
+# weights: they are observations, not a stopping criterion.
+dino_stability:
+  enabled: true
+  injection_ratio_max: 10.0       # abort rule 1
+  ratio_rules_start_iter: 5000    # ratio rules enforced from here; measured from iter 1
+  reference_iter: 5000            # abort rule 2 baseline, persisted across resume
+  growth_factor_max: 10.0         # abort rule 2
+  log_freq: 1000
+  devlog: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/devlogs/affm_render_fixed128_spatial_L3691_latent.md
+
+path:
+  pretrain_network_g: ~     # from scratch, exactly as every other arm
+  strict_load_g: true
+  resume_state: ~           # auto-resume scans experiments/<name>/training_states/
+
+train:
+  total_iter: 300000
+  warmup_iter: -1
+  use_grad_clip: true
+
+  # periods sum to exactly 300000. A truncated run is a DIFFERENT LR
+  # trajectory, not this recipe stopped early, and would not be comparable to
+  # the finished arms.
+  scheduler:
+    type: CosineAnnealingRestartCyclicLR
+    periods: [92000, 208000]
+    restart_weights: [1,1]
+    eta_mins: [0.0003, 0.000001]
+
+  mixing_augs:
+    mixup: false
+    mixup_beta: 1.2
+    use_identity: true
+
+  optim_g:
+    type: AdamW
+    lr: !!float 3e-4
+    weight_decay: !!float 1e-4
+    betas: [0.9, 0.999]
+
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1
+    reduction: mean
+
+val:
+  window_size: 8
+  val_freq: !!float 4e3
+  save_img: false
+  rgb2bgr: true
+  use_image: true          # val PSNR is the 8-bit path; test PSNR is 16-bit
+  max_minibatch: 8
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+
+logger:
+  print_freq: 1000
+  save_checkpoint_freq: !!float 2e3
+  use_tb_logger: true
+  tb_logger_dir: tb_logger/Holo_affm_render_fixed128_spatial_L3691_latent   # decorative
+  wandb:
+    project: ~
+    resume_id: ~
+
+dist_params:
+  backend: nccl
+  port: 29500
