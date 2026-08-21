@@ -98,6 +98,17 @@ class ImageCleanModelDinoSpatial(ImageCleanModel):
         self.log_dict['dino/projected_norm'] = stats['projected_norm']
         self.log_dict['dino/injection_ratio'] = stats['injection_ratio']
 
+        # ADDITIVE, OPTIONAL, AND A NO-OP FOR EVERY EXISTING ARM. An arch may
+        # expose extra OBSERVATIONS in `last_attn_stats`; the cross-attention
+        # arm uses it for attn_entropy and attn_diag_mass, which it computes
+        # only every few thousand forwards. Arms whose network has no such
+        # attribute (E0, addition-1e5, addition-render, global-render, concat)
+        # take the empty default and behave exactly as before. These are
+        # observations only -- they are NEVER read by the gate, deliberately:
+        # no stopping criterion is defined on entropy or diagonal mass.
+        for k, v in (getattr(net, 'last_attn_stats', None) or {}).items():
+            self.log_dict[f'dino/{k}'] = v
+
         if not self.stab_enabled:
             return
         self._check_stability(current_iter, stats)

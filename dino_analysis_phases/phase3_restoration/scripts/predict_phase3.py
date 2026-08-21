@@ -107,18 +107,31 @@ def main():
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
     exp_name = cfg['name']
-    # ANY DINO arm, not just the first one. An exact == against
-    # 'RestormerDinoSpatial' silently skipped set_dino_mode() for the render and
-    # global-render subclasses, which would leave them in the train128 regime
-    # while being fed 256x256 images.
+    # ANY DINO arm, detected by CAPABILITY and never by class name.
+    #
+    # This was a name prefix ('RestormerDinoSpatial') and it broke the moment an
+    # arm was named outside that convention: RestormerDinoConcatRender and
+    # RestormerDinoCrossAttnRender both fail the prefix test, so set_dino_mode()
+    # was silently skipped and the arm stayed in the train128 regime while being
+    # fed 256x256 images. Under full256 that produced a 16x16 DINO grid against
+    # a 32x32 latent -- caught, loudly, by assert_no_interpolation_needed
+    # (concat full256 jobs 1783319 / 1783321). Under crop128 it was accidentally
+    # correct, because train128 is the default. A duck-typed check cannot rot
+    # the same way: if the network can switch regimes, it is a DINO arm.
     arch_type = cfg['network_g']['type']
-    is_dino = arch_type.startswith('RestormerDinoSpatial')
     # the render arms take a STACKED [B,2,H,W] input: radar ch0, render ch1
     # (Dataset_PairedImage_uint16_RenderStacked). Detected from the config, so a
     # new subclass cannot quietly fall through to the single-channel path.
     needs_render = cfg['network_g'].get('dino_source') == 'render'
 
     net = build_model(cfg, args.weights, args.device)
+    is_dino = hasattr(net, 'set_dino_mode')
+    if bool(cfg['network_g'].get('dino_enabled')) != is_dino:
+        raise SystemExit(
+            f'{arch_type}: config says dino_enabled='
+            f'{cfg["network_g"].get("dino_enabled")!r} but the built network '
+            f'{"has" if is_dino else "has no"} set_dino_mode(). Refusing to '
+            f'guess which is right.')
     if is_dino:
         mode = PROTOCOL_DINO_MODE[args.protocol]
         net.set_dino_mode(mode)                   # EXPLICIT, from the protocol
