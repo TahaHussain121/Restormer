@@ -1,4 +1,4 @@
-# HANDOVER — Phase 3 restoration, as of 2026-08-21
+# HANDOVER — Phase 3 restoration, as of 2026-08-24
 
 Read this + `CONTEXT.md` + `DEVLOG.md` at the start of a new session. This file
 covers the **Phase-3 restoration experiments** specifically; `CONTEXT.md` is the
@@ -15,17 +15,42 @@ project-wide primer and `DEVLOG.md` is the append-only step log.
 
 ## One-line status
 
-**Phase 3's source and form questions are decided; the operator question is not
-what it looked like.** Six arms have run. Reading the **render** gains **+2.208
-dB** on test/full256 and reading the **noisy radar** *loses* **0.577 dB**, both
-against no prior at all — that result is unchanged and stands. What changed on
-2026-08-21 is the fusion axis: **crossattn-render's published −3.150 dB is a
-4,000-iteration model**, and the same arm's final checkpoint **beats E0 by +2.00
-dB at its 128 training scale** while losing 7.56 dB at full 256. A seventh arm,
-**affm-render** (layer count, {3,6,9,12} + AFFM), is built, fully verified and
-**not launched**. **priorquery-render is running** (job 1785021).
+**Two arms are training right now and will finish today; everything else is
+done.** Reading the **render** gains **+2.208 dB** on test/full256 and reading
+the **noisy radar** *loses* **0.577 dB** — that result is settled and unchanged.
+Eight arms now exist. The two in flight are **affm-render** (layer count alone)
+and **dinolight-render** (DINOLight's published method: layer count AND operator).
+Both are at ~241k/300k, both gates clean, both projected to finish **2026-08-24
+~18:00**, well inside the **2026-08-28** cluster shutdown.
 
-**Everything in Phase 3 is now committed** (it was not, on 2026-08-14).
+**Nothing in the fusion ladder has beaten plain addition yet**, and the two live
+arms are not separating from it either — see §1a before quoting any number.
+
+---
+
+## §1a. THE TWO LIVE ARMS — read this before quoting their numbers
+
+At 240k on the **8-bit training-time validation** curve: affm **24.364**,
+dinolight **24.239**, against addition-render's best-ever **24.117** on the same
+curve. That looks like a win. **It is not yet a result, for four reasons:**
+
+1. **Wrong metric for comparison.** This is the 8-bit training-time val path.
+   The published 24.081 test / 24.120 val figures come from the **uint16
+   evaluation**. The two are not comparable. Neither live arm has been evaluated
+   on the real path yet.
+2. **Point noise is ~0.4 dB.** E0 moves 21.738 -> 21.328 between 180k and 188k
+   on this same curve. Differences under ~0.3 dB at a single iteration mean
+   nothing.
+3. **No checkpoint selection has happened.** addition-render peaked at 204k,
+   concat at 292k. Best-val selection is pre-registered and has not been run.
+4. **Precedent.** concat-render looked +0.025 ahead on this curve and the full
+   evaluation showed a statistical tie.
+
+**The honest reading today: both live arms sit in the render-arm cluster (~24 dB)
+alongside addition and concat, far above E0 (~21.5), E1-noisy (~21) and
+global-render (~19.7). Nothing separates them from addition-render.** Both
+pre-registered predictions (affm "not >0.10 dB", dinolight "not >0.30 dB") are
+so far holding.
 
 ---
 
@@ -131,24 +156,41 @@ validation, adding it later contaminates nothing.
 
 ---
 
-## 1. Run status (verified 2026-08-21 22:30)
+## 1. Run status (verified 2026-08-24 11:00)
 
-| arm | iters | checkpoint used | test full256 | vs E0 | state |
+| arm | iters | checkpoint | test full256 | vs E0 | state |
 |---|---|---|---|---|---|
 | **E0-Fixed** | 300k | 268k | 21.873 | baseline | done |
 | **E1-addition-noisy** | 300k | 128k | 21.296 | −0.577 | done |
 | **E1-addition-render** | 300k | 204k | **24.081** | **+2.208** | done |
 | **global-render** | 300k | 60k | 20.589 | −1.284 | done — pooling HURTS |
 | **concat-render** | 300k | 292k | 24.065 | +2.193 | done — ties addition |
-| **crossattn-render** | 179k | 4k | 18.723 | −3.150 | **stopped; see READ FIRST** |
-| **priorquery-render** | running | — | — | — | job 1785021, successor 1786468 |
-| **affm-render** | not launched | — | — | — | built + verified, ready |
+| **crossattn-render** | 179k | 4k | 18.723 | −3.150 | stopped; see READ FIRST |
+| **priorquery-render** | 90k | — | — | — | **DROPPED** (cancelled 2026-08-23) |
+| **affm-render** | **243k** | — | — | — | **RUNNING** job 1788585, tg097 |
+| **dinolight-render** | **241k** | — | — | — | **RUNNING** job 1789321, tg091 |
 
-**crossattn-render's stale lock.** `experiments/Phase3_chain_state_Holo_crossattn_render_.../RUNNING_JOB`
-still contains `1784331` and there is no `TRAINING_DONE`. The job was scancel'd
-by hand at 2026-08-21T08:45:04, 16 min before walltime; its successor 1784336
-was cancelled in the same second. **Leave the lock alone** — it is a record, and
-deleting it would let the chain auto-resume a dead arm.
+**The live jobs.** Each has ~17 h of walltime left and needs ~7 h, so both
+should finish inside their current job. Each has a self-queued successor
+(1791652 affm, 1791655 dinolight) sitting on `Dependency` — that is the HEALTHY
+state, not a problem; `chain_core` cancels the successor when `net_g_300000.pth`
+appears. Both are on `CHAIN_COUNT=2` (job 1 hit its 24 h walltime at 188k, as
+designed, and resumed from `188000.state`).
+
+**Two stale locks, both to be LEFT ALONE**: crossattn-render
+(`RUNNING_JOB=1784331`) and priorquery-render. Both jobs were cancelled by hand;
+deleting the lock would let a dead arm auto-resume.
+
+### WHAT TO DO WHEN THE TWO ARMS FINISH
+
+1. Confirm `TRAINING_DONE` exists in each `Phase3_chain_state_*` dir and that
+   the successors were cancelled.
+2. Select checkpoints on **validation** only (pre-registered), then run
+   `scripts/run_evaluate.sh` for both protocols on **val**.
+3. **Do not touch the test split** until you are ready to read it once.
+4. Then and only then compare against addition-render's 24.081.
+
+---
 
 ## 2. What each arm is
 
@@ -191,6 +233,62 @@ E1-addition-render:
 | **crossattn-render** | `F + W_o(MHCA(Q=F, K=V=D))` — radar queries, DINO keys/values. **Direction reversed from the papers on purpose** | +888,576 |
 | **priorquery-render** | `Q=D, K=V=F` — the papers' direction. DINO content never reaches the output; it is a ROUTER over radar positions, not a content source | +741,120 |
 | **affm-render** | LAYER COUNT: {3,6,9,12} instead of {6}, per-layer centering, AFFM softmax across layers. Injection UNCHANGED | +298,372 |
+| **dinolight-render** | layer count AND operator: the same AFFM, then `guided = project_out(F_sa + alpha*F_ca) + F` — gated CHANNEL cross-attention. DINOLight's published method | +1,352,849 |
+
+### The two live arms, in more detail
+
+**affm-render** is the clean one-factor arm. Four DINO depths, each centred with
+its own train-only mean, combined by a per-position softmax ACROSS LAYERS (the
+four weights sum to 1 at each of the 256 positions). The output stays 768
+channels because it is a weighted SUM, so `P` is unchanged and the arm is within
+**1.04%** of addition-render's parameter count — *a loss here cannot be blamed on
+capacity*, which is the entire point of using AFFM instead of a concat.
+
+**dinolight-render** changes TWO factors and is the largest arm in the ladder at
+**4.58x** addition-render. It is a "does the published method transfer to our
+data" arm, **not an ablation** — say so whenever it is reported. Stage 1 is the
+SAME code object (it imports `DinoAffm` from the affm arch), then:
+
+```
+D_proj = P(D_fused)                     [B,384,16,16]
+X = LN(F)   X' = LN(D_proj)
+Q,K,V,Q' <- X      K',V' <- X'          each = 1x1 conv + 3x3 depthwise (MDTA style)
+F_sa = TransposedAttn(Q,K,V)   F_ca = TransposedAttn(Q',K',V')
+guided = project_out(F_sa + sigmoid(alpha_logit)*F_ca) + F
+```
+
+**THE ATTENTION IS CHANNEL-TRANSPOSED, NOT SPATIAL, AND THAT IS THE POINT.** The
+matrix is `C/heads x C/heads = 64x64` at BOTH scales — verified on real forwards
+at 16x16 and 32x32 tokens. crossattn-render used a spatial 256x256 softmax and
+scored +2.00 dB at crop128 vs −7.56 dB at full256 from identical weights. This
+operator structurally cannot have that failure mode.
+
+**`alpha` is the headline non-PSNR diagnostic.** It is a gate the network can
+CLOSE — decay toward 0 means "the prior does not help, falling back to plain
+self-attention", a clean interpretable negative that crossattn could not produce.
+Observed: 0.1192 -> ~0.139, risen then plateaued, so the path is being used
+modestly.
+
+### THE AFFM WEIGHTS ARE A RESULT IN THEMSELVES, AND THEY SURPRISED US
+
+Both arms log the per-layer softmax weights every 5k iterations. At ~185k:
+
+| | w_b3 | w_b6 | w_b9 | w_b12 |
+|---|---|---|---|---|
+| affm-render | **0.172** (lowest) | 0.229 | **0.333** (highest) | 0.266 |
+| dinolight-render | 0.249 | **0.211** (lowest) | 0.231 | **0.309** (highest) |
+
+**B6 is not winning in either arm**, and **B12 — the layer WO1 put nearest the
+different-scene floor (0.2337 same-scene against a 0.1175 floor) — is doing
+fine, and is the highest-weighted layer in dinolight.** That contradicts the
+feature-space ranking the whole B6 lock rests on. The two arms also disagree
+with each other about which layer wins, which argues the weights are weakly
+determined rather than reading a strong signal. Report it either way; it is
+pre-registered in both devlogs as a secondary outcome.
+
+**A CORRECTION ON RECORD:** the 6k smoke runs showed B3 gaining and that was
+read as an early signal. Over 185k iterations it did not hold — it was noise.
+Do not repeat that reading.
 
 **The fusion-operator verdict, and its caveat.** concat ties addition within
 bootstrap CIs on three of four cells for +50% parameters; crossattn and (predicted)
@@ -271,6 +369,28 @@ independent hint pointing the same way.
   (+ `--iters/--name/--batch/--cpu/--no-val/--affm-freq`), `run_smoke6k_affm_render.sh`,
   `run_peak_vram_affm.sh`, `dump_affm_weight_maps.py` (run AFTER training, at
   5k/100k/300k).
+
+**The dinolight-render arm** (built 2026-08-22)
+- `basicsr/models/archs/dino_aca.py` — `DinoAca`, the gated channel
+  cross-attention block. **Deliberately NOT a `*_arch.py` file** so the registry
+  ignores it; it is a building block, not a network. The planned `aca-L6` arm
+  (operator alone, B6 only) should IMPORT this, not reimplement it.
+- `basicsr/models/archs/restormer_dinolight_render_arch.py` —
+  `RestormerDinoLightRender`. Imports `DinoAffm` from the affm arch so stage 1 is
+  the same code object.
+- `configs/dinolight_render_fixed128_L3691_aca_latent.yml` — differs from the
+  affm config in **9 of 112 keys**, all identity / type / fusion. **Reuses the
+  affm arm's four mean files verbatim** (verified bit-identical), so the two arms
+  are comparable on the feature side.
+- `scripts/smoke_tests_dinolight_render.py` (44 checks, includes the scale
+  check), `make_smoke6k_dinolight.py`, `run_smoke6k_dinolight.sh`,
+  `chain_dinolight_render.sh`.
+- **`chain_dinolight_render.sh` carries a HARD DEADLINE GUARD** for 2026-08-28:
+  it writes `DEADLINE_REACHED` and exits BEFORE sourcing `chain_core.sh`, so no
+  successor is queued. The guard lives in the arm's own wrapper and NOT in
+  `chain_core.sh`, because that file is sourced by every arm and an edit would be
+  picked up by a running arm's next resume, silently, hours later.
+  **affm-render has NO such guard** — asymmetry worth knowing.
 
 **The crossattn diagnosis** — `dino_analysis_phases/phase4_crossattn_diagnosis/`
 - `scripts/forensics_and_series.py` — SLURM forensics + val curves + the logged
@@ -376,23 +496,35 @@ new identity for any run it would apply to.
 
 ## 6. Git state
 
-Branch **`dino_e2`**, which has **no upstream tracking branch** — pushes must
-name the remote explicitly (`git push -u origin dino_e2`). Remotes: `origin` =
-TahaHussain121/Restormer (ours), `upstream` = swz30/Restormer (do not push).
+Branch **`dino_e2`**, tracking `origin/dino_e2` (pushed 2026-08-21). Remotes:
+`origin` = TahaHussain121/Restormer (ours), `upstream` = swz30/Restormer (never
+push there).
 
-**Phase 3 is committed as of 2026-08-21**, in separate commits per arm and per
-piece of work so nothing is mixed together. What is *not* and never will be in
-git, because `.gitignore` excludes it: `experiments/`, `tb_logger/`, `**/results/`,
-`*.pth`, `*.pt`, `*.png`, `*.log`, `*.state`. **Checkpoints, TensorBoard curves,
-prediction images, figures and the centering-mean tensors exist on disk only** —
-exactly how the E1-FiLM runs became unrecoverable (DEVLOG Step 28). The mean
-`*_meta.json` files ARE tracked, so a lost `.pt` can at least be recomputed with
-a known recipe.
+Last commit `1f343a0`. **Committed through the crossattn diagnosis and the affm
+arm**, in one commit per piece of work.
 
-**Committing is safe; editing is not.** A change to a shared arch is picked up by
-the *next resume* of every arm that uses it, not at the next iteration, so it
-lands silently hours later. New arms get **new files with new class names** —
-never a layer-list argument or a mode flag bolted onto a finished arm's arch.
+**NOT YET COMMITTED (9 items):**
+```
+ M dino_analysis_phases/phase3_restoration/scripts/chain_affm_render.sh   (walltime 23h -> 24h)
+?? basicsr/models/archs/dino_aca.py
+?? basicsr/models/archs/restormer_dinolight_render_arch.py
+?? dino_analysis_phases/phase3_restoration/configs/dinolight_render_fixed128_L3691_aca_latent.yml
+?? dino_analysis_phases/phase3_restoration/devlogs/dinolight_render_fixed128_L3691_aca_latent.md
+?? dino_analysis_phases/phase3_restoration/scripts/chain_dinolight_render.sh
+?? dino_analysis_phases/phase3_restoration/scripts/make_smoke6k_dinolight.py
+?? dino_analysis_phases/phase3_restoration/scripts/run_smoke6k_dinolight.sh
+?? dino_analysis_phases/phase3_restoration/scripts/smoke_tests_dinolight_render.py
+```
+Committing is safe **while the arms train** — the files on disk are already what
+they are running. **Editing is not**: a change to a shared arch or to
+`chain_core.sh` is read by the NEXT RESUME, not the next iteration, so it lands
+silently hours later. New arms get NEW files with NEW class names.
+
+`.gitignore` excludes `experiments/`, `tb_logger/`, `**/results/`, `*.pth`,
+`*.pt`, `*.png`, `*.log`, `*.state`. **Checkpoints, curves, prediction images,
+figures and the centering-mean tensors exist on disk ONLY.** The mean
+`*_meta.json` files ARE tracked, so a lost `.pt` can be recomputed with a known
+recipe.
 
 Commits on this repo take **no `Co-Authored-By` trailer**.
 
@@ -400,16 +532,24 @@ Commits on this repo take **no `Co-Authored-By` trailer**.
 
 | item | status | cost |
 |---|---|---|
-| **LAUNCH affm-render** — everything verified, command in §3 | ready, not launched | 300k a100 |
-| **crossattn at eval256** — run the attention probe on `net_g_178000` at 32x32 and read entropy/diag over the 1024x1024 matrix. Separates "the softmax denominator changed" from "the routing is tied to 16x16 geometry" | **the cheapest open item** | ~2 min |
+| **Evaluate affm + dinolight when they hit 300k** — best-val selection, then `run_evaluate.sh` on val for both protocols. See §1's "WHAT TO DO WHEN..." | **the immediate next task** | ~30 min |
+| **Commit the dinolight arm** (9 files, §6) | ready | 2 min |
+| **crossattn at eval256** — point `phase4_crossattn_diagnosis/scripts/attention_probe.py` at `net_g_178000` in the eval256 regime and read entropy/diag over the 1024x1024 matrix. Separates "the softmax denominator changed" from "the routing is tied to 16x16 geometry" | **still the cheapest open item** | ~2 min |
 | **Checkpoint-selection rule** — is best-val-on-full256 right for arms trained at 128? It is PRE-REGISTERED, so changing it after seeing crossattn's reversal needs a written decision, not drift | decision needed | — |
-| **Crop-size feature drift study** (DSGIR Fig. 10 analogue on radar) | specified, never started; blocked on 3 decisions incl. that the 0.6694/+0.1453 reference numbers are the **1e5↔1e7** pair, not render↔1e5 | 1 sbatch |
-| **B3 run** under an identical recipe | pre-registered, never run — and the affm 6k smoke's early B3 preference makes it more interesting, not less | 300k |
-| **Co-inflation gate rule** (>5x vs the 5k reference on either norm) | proposed, not implemented; the hole is now confirmed quantitatively (15x/14x growth, ratio never left 0.52–0.91) | small |
-| **Token-shuffle control** for the different-scene floor | not run | small |
-| **global arm on the 1e5 source** | requested, not implemented | 300k |
-| **E1-noisy's early peak** (best at 128k) | observed, not investigated | — |
-| **priorquery-render** | running; pre-registered prediction is that it lands closer to E0 than to addition-render | in flight |
+| **aca-L6** — operator alone, B6 only, importing `DinoAca`. Completes the 2x2 with affm (layer alone) and dinolight (both) | designed, not built | 300k — will NOT fit before Aug 28 |
+| **Crop-size feature drift study** | specified, never started; blocked on 3 decisions incl. that 0.6694/+0.1453 is the **1e5<->1e7** pair, not render<->1e5 | 1 sbatch |
+| **B3 run** under an identical recipe | pre-registered, never run | 300k |
+| **Co-inflation gate rule** | proposed, not implemented; hole confirmed quantitatively | small |
+| **Token-shuffle control**, **global arm on 1e5**, **E1-noisy's early peak** | not run / not investigated | — |
+| ~~priorquery-render~~ | **DROPPED** 2026-08-23 at 90k, cancelled by hand | — |
+
+### THE AUG 28 DEADLINE
+
+The cluster goes down **2026-08-28** for maintenance. As of 2026-08-24 11:00
+there are **~85 h** left. The two live arms need ~7 h each and finish today.
+**Nothing else that needs 300k can be started** — a 300k run is ~39 h of compute
+plus queue wait, and the queue has already cost 15 h on one occasion. Plan the
+remaining time around evaluation and writing, not new training.
 
 ## 8. Standing rules for this work
 

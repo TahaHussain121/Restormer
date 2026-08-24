@@ -287,6 +287,55 @@ All config work happened on fived08; the actual first completed training run was
       EARLY, NOISY, DO NOT OVERSTATE: in the 6k smoke the only layer GAINING weight is
       B3 (0.250 -> 0.334), which is the layer that wins the scene-advantage criterion —
       the documented tension behind the B6 lock. 6k of 300k, single-batch measurements.
+- [x] *** affm-render AND dinolight-render BOTH LAUNCHED AND TRAINING (2026-08-24) ***
+      affm-render      job 1788585, 243k/300k, layers {3,6,9,12} + AFFM, addition
+                       injection UNCHANGED. +298,372 params = +1.04% over
+                       addition-render, so a loss cannot be blamed on capacity.
+      dinolight-render job 1789321, 241k/300k, the SAME AFFM plus DINOLight's
+                       gated CHANNEL cross-attention (ACA) at the latent.
+                       +1,352,849 params = 4.58x addition-render. Changes TWO
+                       factors at once -- it is a "does the published method
+                       transfer" arm, NOT an ablation. Say so when reporting it.
+      Both gates clean (0 STABILITY_FAILURE), both projected to finish
+      2026-08-24 ~18:00, inside the 2026-08-28 shutdown. Both hit their 24h
+      walltime at 188k and resumed from 188000.state exactly as the chain is
+      designed to.
+- [x] NEITHER LIVE ARM IS SEPARATING FROM PLAIN ADDITION. On the 8-bit
+      training-time val curve at 240k: affm 24.364, dinolight 24.239, against
+      addition-render's best-ever 24.117. DO NOT read that as a win:
+        (a) wrong metric -- the published 24.081 test is the uint16 path;
+        (b) point noise on this curve is ~0.4 dB (E0 swings 21.738 -> 21.328
+            between 180k and 188k);
+        (c) no checkpoint selection has run -- addition peaked at 204k;
+        (d) concat-render looked +0.025 ahead here and the full evaluation
+            showed a statistical TIE.
+      Both pre-registered predictions (affm "not >0.10 dB", dinolight "not
+      >0.30 dB") are so far HOLDING.
+- [x] *** THE AFFM LAYER WEIGHTS CONTRADICT OUR FEATURE-SPACE RANKING *** and
+      this is a result in its own right, pre-registered in both devlogs. At
+      ~185k, the per-position softmax over layers settles at:
+        affm-render      B3 0.172 (lowest)  B6 0.229  B9 0.333 (highest)  B12 0.266
+        dinolight-render B3 0.249  B6 0.211 (lowest)  B9 0.231  B12 0.309 (highest)
+      B6 -- the locked layer -- wins in NEITHER arm, and B12, which WO1 put
+      nearest the different-scene floor (0.2337 vs a 0.1175 floor), is fine and
+      is the TOP layer in dinolight. The two arms also disagree with each other
+      about which layer wins, which argues the weights are weakly determined
+      rather than reading a strong signal.
+      CORRECTION ON RECORD: the 6k smokes showed B3 gaining and that was read as
+      an early signal. Over 185k it did NOT hold -- it was noise. Do not repeat
+      that reading.
+- [x] dinolight's ACA is CHANNEL-transposed attention, and the smoke test
+      VERIFIED the property that motivated it: the attention matrix is
+      64x64 (C/heads) at BOTH the 16x16-token train regime and the 32x32-token
+      eval regime, while the DINO grid demonstrably changes. crossattn-render's
+      spatial 256x256 softmax is exactly what could not survive that transition
+      (+2.00 dB crop128 vs -7.56 dB full256 from identical weights). On a trained
+      6k checkpoint dinolight scored crop128 19.562 / full256 21.645 -- full256
+      HIGHER, not catastrophically lower.
+      Its `alpha` gate (which the network can CLOSE, unlike crossattn) rose
+      0.1192 -> ~0.139 and plateaued: the DINO path is used, modestly.
+- [x] priorquery-render DROPPED 2026-08-23 at 90k/300k, cancelled by hand. Its
+      files and stale RUNNING_JOB lock are left in place, untouched.
 - [x] TWO BUGS CAUGHT BY THE PRE-LAUNCH SMOKE RUNS, both invisible to the architectural
       suite because they live in the basicsr integration path:
       (1) bare INTEGER yaml keys in the per-layer mean maps crashed
@@ -317,7 +366,27 @@ Dataset note: TWO datasets are now in play.
                                 no test split. train_/val_verynoisy built as symlinks from
                                 splits/*.txt (see DEVLOG Step 19).
 
-Last change: 2026-08-21 — THREE THINGS, IN ORDER OF HOW MUCH THEY CHANGE THE STORY.
+Last change: 2026-08-24 — TWO ARMS IN FLIGHT, FINISHING TODAY, AND A SURPRISE
+THAT IS NOT ABOUT PSNR.
+
+affm-render (243k/300k) and dinolight-render (241k/300k) are both training and
+both finish ~18:00 today, inside the 2026-08-28 shutdown. Neither is separating
+from plain addition on the training-time curve, and both pre-registered "does
+not beat it" predictions are so far holding — but no checkpoint selection or
+uint16 evaluation has run, so nothing is decided.
+
+The interesting result so far is NOT the PSNR. It is that the AFFM layer weights
+put B6 last or near-last in both arms, and rate B12 — the layer our own
+feature-space analysis placed nearest the noise floor — highest in dinolight.
+The B6 lock rests on that feature-space ranking. Two arms optimising a
+completely different objective disagree with it, and disagree with each other,
+which points at the weights being weakly determined rather than at a new winner.
+
+IMMEDIATE NEXT TASK: when the two arms hit 300k, confirm TRAINING_DONE, select
+checkpoints on VALIDATION only, run scripts/run_evaluate.sh on val for both
+protocols, and do not touch the test split until ready to read it once.
+
+Prior (2026-08-21) — THREE THINGS, IN ORDER OF HOW MUCH THEY CHANGE THE STORY.
 
 1. crossattn-render is NOT the clean failure the 2026-08-20 entry describes. The same
    weights score +2.00 dB over E0 at the 128 training scale and -7.56 dB at full 256, and
