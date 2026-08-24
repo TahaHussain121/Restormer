@@ -2,7 +2,7 @@
 #
 #SBATCH --gres=gpu:a100:1
 #SBATCH --partition=a100
-#SBATCH --time=23:00:00
+#SBATCH --time=1-00:00:00
 #SBATCH --export=NONE
 #SBATCH --job-name=p3chain_affm
 #SBATCH --output=dino_analysis_phases/phase3_restoration/results/Holo_affm_render_fixed128_spatial_L3691_latent/logs/chain_%j.out
@@ -26,6 +26,16 @@
 # ARM_PART is read by every successor too, so an sbatch --partition override
 # would move only the FIRST job and silently split the run across two numeric
 # regimes. Do not override it.
+#
+# WALLTIME IS THE a100 PARTITION MAXIMUM (MaxTime=1-00:00:00). Every successor
+# is `sbatch $SELF`, so this line governs every job in the chain, not just the
+# first.
+#
+# THIS ARM NEEDS TWO JOBS, NOT ONE. Measured from the finished arms on a100:
+# addition-render covered 177,000 iterations in 22.97 h and concat-render
+# 176,000 in 22.88 h -- about 7,700 iters/h, so 300k is ~39 h of wall time. A
+# 24 h job reaches roughly iteration 190,000 and the successor finishes the
+# remaining ~110k in ~14 h. The chain is REQUIRED here, not insurance.
 #
 # All shared logic lives in chain_core.sh so behaviour cannot drift between
 # arms; only the identity below is per-experiment.
