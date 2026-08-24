@@ -1,0 +1,207 @@
+# =============================================================================
+# dinolight-render — DINOLight's method (arXiv 2603.12579) adapted to radar.
+#
+# NOT A ONE-FACTOR ABLATION, AND MUST NEVER BE REPORTED AS ONE. Against
+# addition-render this changes TWO things at once — the LAYER COUNT (four depths
+# instead of one) and the FUSION OPERATOR (gated channel cross-attention instead
+# of a residual add) — and it is the largest arm in the ladder at +1,352,849
+# parameters, about 4.6x addition-render's +295,296. A win here CANNOT be
+# separated from added capacity. It answers "does the published method transfer
+# to our data", not "which factor matters". The single-factor arms are
+# affm-render (layer count alone) and the planned aca-L6 (operator alone).
+#
+# THIS FILE IS affm_render_fixed128_spatial_L3691_latent.yml WITH FOUR CHANGES:
+#   1. name              Holo_dinolight_render_fixed128_L3691_aca_latent
+#   2. network_g.type    RestormerDinoAffmRender -> RestormerDinoLightRender
+#   3. the fusion        dino_fusion: affm -> aca, plus dino_aca_heads /
+#                        dino_aca_alpha_init / dino_aca_stats_freq, replacing
+#                        dino_affm_stats_freq
+#   4. the devlog and tb_logger paths
+# The layer set, THE FOUR MEAN FILES (reused verbatim, not recomputed, so the
+# two arms stay comparable on the feature side), splits, crop, augmentation,
+# seed, Restormer hyper-parameters, optimizer, LR, scheduler, iterations, batch,
+# loss, validation and the stability gate are all IDENTICAL.
+#
+# THE PIPELINE, replacing exactly one tensor at inp_enc_level4:
+#   AFFM over {3,6,9,12}  ->  P: Conv2d(768,384,1)  ->  ACA(F, P(D))
+#   ACA:  F_sa = TransposedAttn(Q,K,V) from F;  F_ca = TransposedAttn(Q',K',V')
+#         with Q' from F and K',V' from the prior;  alpha = sigmoid(alpha_logit)
+#         guided = project_out(F_sa + alpha*F_ca) + F      (project_out zero-init)
+#
+# THE ATTENTION IS CHANNEL-TRANSPOSED, NOT SPATIAL, AND THAT IS THE POINT. The
+# matrix is C/heads x C/heads = 64x64 at BOTH scales, independent of token count.
+# Our failed crossattn-render used a spatial 256x256 softmax and scored +2.00 dB
+# at crop128 but -7.56 dB at full256 from IDENTICAL weights, because the DINO
+# grid goes 16x16 -> 32x32 between train and eval. This operator has no such
+# failure mode; the smoke test verifies the shape at both scales rather than
+# assuming it.
+#
+# DINOLight's frequency-domain branch is OMITTED. Their own ablation puts
+# spatial-only at 22.289 and dual-domain at 22.600 — ~0.31 dB for double the
+# implementation surface, which does not fit before the 2026-08-28 shutdown.
+#
+# projected_norm LOGS ||alpha * F_ca||, the DINO contribution. It starts at
+# EXACTLY ZERO like every other arm's ||P(D)||, because P is zero-init too, so
+# injection_ratio rises from 0 and the gate reads the same shape of quantity it
+# reads everywhere else. The true injected delta into F is logged separately as
+# aca_injected_norm.
+#
+# 1e7 IS TARGET ONLY. The render is DINO input and nothing else.
+# =============================================================================
+
+name: Holo_dinolight_render_fixed128_L3691_aca_latent
+model_type: ImageCleanModelDinoSpatial
+scale: 1
+num_gpu: 1
+manual_seed: 100
+datasets:
+  train:
+    name: TrainSet
+    type: Dataset_PairedImage_uint16_RenderStacked
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_verynoisy
+    dataroot_render: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/train_renders_blackbg
+    geometric_augs: true
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+    use_shuffle: true
+    num_worker_per_gpu: 2
+    batch_size_per_gpu: 8
+    mini_batch_sizes:
+    - 8
+    iters:
+    - 300000
+    gt_size: 256
+    gt_sizes:
+    - 128
+    dataset_enlarge_ratio: 1
+    prefetch_mode: null
+  val:
+    name: ValSet
+    type: Dataset_PairedImage_uint16_RenderStacked
+    dataroot_gt: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_clean
+    dataroot_lq: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_verynoisy
+    dataroot_render: /home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset/val_renders_blackbg
+    io_backend:
+      type: disk
+network_g:
+  type: RestormerDinoLightRender
+  inp_channels: 1
+  out_channels: 1
+  dim: 48
+  num_blocks:
+  - 4
+  - 6
+  - 6
+  - 8
+  num_refinement_blocks: 4
+  heads:
+  - 1
+  - 2
+  - 4
+  - 8
+  ffn_expansion_factor: 2.66
+  bias: false
+  LayerNorm_type: WithBias
+  dual_pixel_task: false
+  dino_enabled: true
+  dino_model: dinov2_vitb14
+  dino_block: 6
+  dino_layers:
+  - 3
+  - 6
+  - 9
+  - 12
+  dino_fusion: aca
+  dino_aca_heads: 6
+  dino_aca_alpha_init: -2.0
+  dino_aca_stats_freq: 5000
+  dino_frozen: true
+  dino_source: render
+  dino_injection: latent
+  dino_projection: conv1x1
+  dino_init: zero
+  dino_embed_dim: 768
+  dino_default_mode: train128
+  dino_mean_train128: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_train128_dino224_mean.pt
+  dino_mean_eval256: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_eval256_dino448_mean.pt
+  dino_means_train128:
+    '3': /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B3_train128_dino224_mean.pt
+    '6': /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_train128_dino224_mean.pt
+    '9': /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B9_train128_dino224_mean.pt
+    '12': /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B12_train128_dino224_mean.pt
+  dino_means_eval256:
+    '3': /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B3_eval256_dino448_mean.pt
+    '6': /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B6_eval256_dino448_mean.pt
+    '9': /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B9_eval256_dino448_mean.pt
+    '12': /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/means/render_B12_eval256_dino448_mean.pt
+dino_stability:
+  enabled: true
+  injection_ratio_max: 10.0
+  ratio_rules_start_iter: 5000
+  reference_iter: 5000
+  growth_factor_max: 10.0
+  log_freq: 1000
+  devlog: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/phase3_restoration/devlogs/dinolight_render_fixed128_L3691_aca_latent.md
+path:
+  pretrain_network_g: null
+  strict_load_g: true
+  resume_state: null
+train:
+  total_iter: 300000
+  warmup_iter: -1
+  use_grad_clip: true
+  scheduler:
+    type: CosineAnnealingRestartCyclicLR
+    periods:
+    - 92000
+    - 208000
+    restart_weights:
+    - 1
+    - 1
+    eta_mins:
+    - 0.0003
+    - 1.0e-06
+  mixing_augs:
+    mixup: false
+    mixup_beta: 1.2
+    use_identity: true
+  optim_g:
+    type: AdamW
+    lr: 0.0003
+    weight_decay: 0.0001
+    betas:
+    - 0.9
+    - 0.999
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1
+    reduction: mean
+val:
+  window_size: 8
+  val_freq: 4000.0
+  save_img: false
+  rgb2bgr: true
+  use_image: true
+  max_minibatch: 8
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+logger:
+  print_freq: 1000
+  save_checkpoint_freq: 2000.0
+  use_tb_logger: true
+  tb_logger_dir: tb_logger/Holo_dinolight_render_fixed128_L3691_aca_latent
+  wandb:
+    project: null
+    resume_id: null
+dist_params:
+  backend: nccl
+  port: 29500
