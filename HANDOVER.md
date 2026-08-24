@@ -1,4 +1,4 @@
-# HANDOVER — Phase 3 restoration, as of 2026-08-24
+# HANDOVER — Phase 3 restoration, as of 2026-08-24 20:00
 
 Read this + `CONTEXT.md` + `DEVLOG.md` at the start of a new session. This file
 covers the **Phase-3 restoration experiments** specifically; `CONTEXT.md` is the
@@ -15,16 +15,17 @@ project-wide primer and `DEVLOG.md` is the append-only step log.
 
 ## One-line status
 
-**Two arms are training right now and will finish today; everything else is
-done.** Reading the **render** gains **+2.208 dB** on test/full256 and reading
-the **noisy radar** *loses* **0.577 dB** — that result is settled and unchanged.
-Eight arms now exist. The two in flight are **affm-render** (layer count alone)
-and **dinolight-render** (DINOLight's published method: layer count AND operator).
-Both are at ~241k/300k, both gates clean, both projected to finish **2026-08-24
-~18:00**, well inside the **2026-08-28** cluster shutdown.
+**affm-render and dinolight-render both COMPLETED 300,000 iterations on
+2026-08-24. Neither has been evaluated. The queue is empty.** Three ACA arms are
+built and smoke-passed but NOT submitted.
 
-**Nothing in the fusion ladder has beaten plain addition yet**, and the two live
-arms are not separating from it either — see §1a before quoting any number.
+**THE TWO MOST URGENT THINGS, in order:**
+
+1. **Evaluate affm-render and dinolight-render.** 300k of compute currently
+   exists only as `.pth` files — no checkpoint selection, no metrics, no
+   figures. `experiments/` is gitignored, so this is the work most at risk of
+   being lost. ~30 min, runs on rtx3080/v100.
+2. **Submit aca-L6** (stage 1). Smoke-passed, ready, ~37.5 h on a100.
 
 ---
 
@@ -156,30 +157,30 @@ validation, adding it later contaminates nothing.
 
 ---
 
-## 1. Run status (verified 2026-08-24 11:00)
+## 1. Run status (verified 2026-08-24 20:00)
 
-| arm | iters | checkpoint | test full256 | vs E0 | state |
+| arm | iters | ckpt | test full256 | vs E0 | state |
 |---|---|---|---|---|---|
-| **E0-Fixed** | 300k | 268k | 21.873 | baseline | done |
-| **E1-addition-noisy** | 300k | 128k | 21.296 | −0.577 | done |
-| **E1-addition-render** | 300k | 204k | **24.081** | **+2.208** | done |
-| **global-render** | 300k | 60k | 20.589 | −1.284 | done — pooling HURTS |
-| **concat-render** | 300k | 292k | 24.065 | +2.193 | done — ties addition |
-| **crossattn-render** | 179k | 4k | 18.723 | −3.150 | stopped; see READ FIRST |
-| **priorquery-render** | 90k | — | — | — | **DROPPED** (cancelled 2026-08-23) |
-| **affm-render** | **243k** | — | — | — | **RUNNING** job 1788585, tg097 |
-| **dinolight-render** | **241k** | — | — | — | **RUNNING** job 1789321, tg091 |
+| E0-Fixed | 300k | 268k | 21.873 | baseline | done |
+| addition-1e5 | 300k | 128k | 21.296 | −0.577 | done |
+| addition-render | 300k | 204k | **24.081** | **+2.208** | done |
+| global-render | 300k | 60k | 20.589 | −1.284 | done |
+| concat-render | 300k | 292k | 24.065 | +2.193 | done |
+| crossattn-render | 179k | 4k | 18.723 | −3.150 | stopped; see READ FIRST |
+| priorquery-render | 91k | — | — | — | **DROPPED** 2026-08-23 |
+| **affm-render** | **300k ✅** | — | — | — | **DONE, NOT EVALUATED** |
+| **dinolight-render** | **300k ✅** | — | — | — | **DONE, NOT EVALUATED** |
+| aca-L6 | 0 | — | — | — | smoked, **NOT SUBMITTED** (stage 1) |
+| aca-L36 | 0 | — | — | — | smoked, **NOT SUBMITTED** (stage 2) |
+| aca-L6912 | 0 | — | — | — | smoked, **NOT SUBMITTED** (stage 2) |
 
-**The live jobs.** Each has ~17 h of walltime left and needs ~7 h, so both
-should finish inside their current job. Each has a self-queued successor
-(1791652 affm, 1791655 dinolight) sitting on `Dependency` — that is the HEALTHY
-state, not a problem; `chain_core` cancels the successor when `net_g_300000.pth`
-appears. Both are on `CHAIN_COUNT=2` (job 1 hit its 24 h walltime at 188k, as
-designed, and resumed from `188000.state`).
+**The chain worked exactly as designed on both live arms**: 24 h walltime kill
+at 188k, clean resume from `188000.state`, `TRAINING_DONE` written at 300k, and
+each job's own successor (1791652 / 1791655) **auto-cancelled by `chain_core`**.
+No `STABILITY_FAILURE`, no gate trigger on either.
 
-**Two stale locks, both to be LEFT ALONE**: crossattn-render
-(`RUNNING_JOB=1784331`) and priorquery-render. Both jobs were cancelled by hand;
-deleting the lock would let a dead arm auto-resume.
+**Your queue is EMPTY and your account holds no a100 GRES**, so the
+`AssocGrpGRES` block that stopped an earlier aca-L6 submission is gone.
 
 ### WHAT TO DO WHEN THE TWO ARMS FINISH
 
@@ -268,6 +269,43 @@ CLOSE — decay toward 0 means "the prior does not help, falling back to plain
 self-attention", a clean interpretable negative that crossattn could not produce.
 Observed: 0.1192 -> ~0.139, risen then plateaued, so the path is being used
 modestly.
+
+### THE ACA LADDER — three arms built 2026-08-24, none submitted yet
+
+Fusion is **identical** across all four ACA arms — the same `DinoAca` block,
+imported, never copied. **Only the layer set changes.**
+
+| arm | layers | AFFM | delta over E0 | vs dinolight |
+|---|---|---|---|---|
+| **aca-L6** | {6} | **none** | 1,349,773 | −0.227% |
+| **aca-L36** | {3,6} | 2 convs | 1,351,311 | −0.114% |
+| **aca-L6912** | {6,9,12} | 3 convs | 1,352,080 | −0.057% |
+| dinolight-render | {3,6,9,12} | 4 convs | 1,352,849 | — |
+
+**aca-L6 is the arm that matters most.** It is **ONE factor from
+addition-render** — same B6 layer, same mean, same injection point, only the
+fusion operator differs. Nothing else in Phase 3 gives that comparison:
+dinolight changes operator *and* layer count; crossattn changed operator,
+direction and attention type together. **If only one of the three ever runs, it
+must be this one.**
+
+**NO AFFM in aca-L6, deliberately.** With one layer the AFFM softmax runs over
+an axis of length 1 and is identically 1.0 — a no-op. Including it would add
+769 dead parameters and a meaningless observation series. The smoke asserts
+`self.affm` does not exist. Do not read this as inconsistent with the others.
+
+**TWO COMPARISONS, TWO CAVEATS — NEVER CONFLATE THEM.**
+*Across the ACA ladder* the spread is **0.227%**, so a difference there is NOT
+attributable to capacity — that is the entire point of building it this way.
+*Against addition-render* every ACA arm is **~4.6x** the parameters, so THAT
+comparison IS capacity confounded.
+
+**Run order is aca-L6 -> aca-L36 -> aca-L6912, staged.** Stage 2 exists so that
+if the shared `DinoAca` block had a bug, one arm exposes it instead of three
+burning ~76 h between them.
+
+**No Aug-28 deadline guard on any of the three** — deliberate; jobs resume after
+maintenance, so an unfinished arm is not wasted.
 
 ### THE AFFM WEIGHTS ARE A RESULT IN THEMSELVES, AND THEY SURPRISED US
 
@@ -391,6 +429,28 @@ independent hint pointing the same way.
   `chain_core.sh`, because that file is sourced by every arm and an edit would be
   picked up by a running arm's next resume, silently, hours later.
   **affm-render has NO such guard** — asymmetry worth knowing.
+
+**The ACA ladder** (built 2026-08-24, none submitted)
+- `basicsr/models/archs/dino_aca.py` — `DinoAca`, the shared gated channel
+  cross-attention block. **Deliberately NOT a `*_arch.py` file** so the registry
+  ignores it. Every ACA arm IMPORTS it; there is exactly one implementation.
+- `restormer_aca_l6_render_arch.py` / `..._l36_...` / `..._l6912_...` — one arch
+  per arm, each **hard-coding its own layer set**. Duplication over shared flags,
+  on purpose: a change to one arm can never silently alter another. aca-L6
+  inherits `dino_prior` unchanged, so its prior is byte-for-byte
+  addition-render's.
+- `configs/aca_render_fixed128_{L6,L36,L6912}_latent.yml` — differ from
+  dinolight's in 7–13 keys, all identity / type / layer-and-mean set.
+- `scripts/smoke_tests_aca_arms.py` — ONE test driven by `--config`, so the
+  three arms' checks cannot drift apart. 31/31 on each; `--scale-check` on L6.
+- `scripts/make_smoke6k_aca.py` + `run_smoke6k_aca_l6.sh` — the 6k INTEGRATION
+  smoke (gate enforced across iteration 5000) plus peak VRAM.
+- `scripts/chain_aca_render_fixed128_*.sh` — one per arm. **No deadline guard.**
+- `scripts/submit_aca_stage2.sh` — fires arms 2 and 3 together.
+- `scripts/aca_manifest.py` -> `results/wo2_implementation/ACA_MANIFEST.md`
+  (+ `.jsonl`). **Append-only**; regenerated from history, never hand-edited.
+  Carries per arm: config path, experiment name, job ids in order, state,
+  iterations reached, and **the exact hand-resume command**.
 
 **The crossattn diagnosis** — `dino_analysis_phases/phase4_crossattn_diagnosis/`
 - `scripts/forensics_and_series.py` — SLURM forensics + val curves + the logged
@@ -532,24 +592,40 @@ Commits on this repo take **no `Co-Authored-By` trailer**.
 
 | item | status | cost |
 |---|---|---|
-| **Evaluate affm + dinolight when they hit 300k** — best-val selection, then `run_evaluate.sh` on val for both protocols. See §1's "WHAT TO DO WHEN..." | **the immediate next task** | ~30 min |
-| **Commit the dinolight arm** (9 files, §6) | ready | 2 min |
-| **crossattn at eval256** — point `phase4_crossattn_diagnosis/scripts/attention_probe.py` at `net_g_178000` in the eval256 regime and read entropy/diag over the 1024x1024 matrix. Separates "the softmax denominator changed" from "the routing is tied to 16x16 geometry" | **still the cheapest open item** | ~2 min |
-| **Checkpoint-selection rule** — is best-val-on-full256 right for arms trained at 128? It is PRE-REGISTERED, so changing it after seeing crossattn's reversal needs a written decision, not drift | decision needed | — |
-| **aca-L6** — operator alone, B6 only, importing `DinoAca`. Completes the 2x2 with affm (layer alone) and dinolight (both) | designed, not built | 300k — will NOT fit before Aug 28 |
-| **Crop-size feature drift study** | specified, never started; blocked on 3 decisions incl. that 0.6694/+0.1453 is the **1e5<->1e7** pair, not render<->1e5 | 1 sbatch |
-| **B3 run** under an identical recipe | pre-registered, never run | 300k |
-| **Co-inflation gate rule** | proposed, not implemented; hole confirmed quantitatively | small |
-| **Token-shuffle control**, **global arm on 1e5**, **E1-noisy's early peak** | not run / not investigated | — |
-| ~~priorquery-render~~ | **DROPPED** 2026-08-23 at 90k, cancelled by hand | — |
+| **Evaluate affm + dinolight at 300k** — best-val selection, then `run_evaluate.sh` on val, both protocols. See §1's checklist | **the immediate next task** | ~30 min |
+| **Submit aca-L6 (stage 1)** once a100 frees and its 6k smoke passes | ready | 38.6 h (2 jobs) |
+| **Submit aca-L36 + aca-L6912 (stage 2)** — only after aca-L6 looks healthy | ready | 38.6 h each |
+| **crossattn at eval256** — point `attention_probe.py` at `net_g_178000` in the eval256 regime, read entropy/diag over the 1024x1024 matrix | **still the cheapest open item** | ~2 min |
+| **Checkpoint-selection rule** — is best-val-on-full256 right for arms trained at 128? PRE-REGISTERED, so changing it needs a written decision | decision needed | — |
+| **Crop-size feature drift study** | specified, never started; blocked on 3 decisions incl. that 0.6694/+0.1453 is the **1e5↔1e7** pair | 1 sbatch |
+| **B3 run**, **co-inflation gate rule**, **token-shuffle control**, **global arm on 1e5**, **E1-noisy's early peak** | not run / not implemented | — |
+| ~~priorquery-render~~ | **DROPPED** 2026-08-23 at 90k | — |
 
-### THE AUG 28 DEADLINE
+### THE AUG 28 MAINTENANCE — NO LONGER A HARD DEADLINE
 
-The cluster goes down **2026-08-28** for maintenance. As of 2026-08-24 11:00
-there are **~85 h** left. The two live arms need ~7 h each and finish today.
-**Nothing else that needs 300k can be started** — a 300k run is ~39 h of compute
-plus queue wait, and the queue has already cost 15 h on one occasion. Plan the
-remaining time around evaluation and writing, not new training.
+Superseded 2026-08-24: **jobs resume after the maintenance window**, so an arm
+that does not finish beforehand is not wasted. The three ACA arms therefore
+carry **no deadline guard**, deliberately.
+
+At 0.4633 s/iter a 300k arm is **38.6 h = two 24 h jobs**. Even starting after a
+15 h queue wait, an arm begun on 2026-08-25 completes before maintenance.
+
+**ONE ASYMMETRY, KNOWN AND DELIBERATELY NOT FIXED:**
+`chain_dinolight_render.sh` still carries a `DEADLINE_REACHED` guard from when
+the deadline was believed hard. It is **unreachable** — that arm finishes
+2026-08-24 — and it was **not removed, because editing a running arm's chain
+script lands silently on its next resume.** Remove it only once dinolight has
+`TRAINING_DONE`. No other arm has a guard.
+
+**SURVIVING A HARD DRAIN.** `training_states/*.state` is written every **2,000
+iterations ≈ 15.4 min**, so a hard kill loses at most ~15 min. Assume the
+epilogue may NOT run when the cluster drains — a node kill can take a job
+without the wrapper getting to queue a successor, silently ending the chain.
+**Re-running an arm's chain script is always safe**: `chain_core` refuses a
+second trainer on a live experiment, treats a stale lock from a dead job as
+"take over", and basicsr auto-resumes from the highest state file. The exact
+command per arm is in `ACA_MANIFEST.md`. **Do NOT resume an arm that wrote
+`CHAIN_ABORTED` or holds a `STABILITY_FAILURE*.json`** — record why instead.
 
 ## 8. Standing rules for this work
 

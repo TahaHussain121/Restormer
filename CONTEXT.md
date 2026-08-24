@@ -336,6 +336,58 @@ All config work happened on fived08; the actual first completed training run was
       0.1192 -> ~0.139 and plateaued: the DINO path is used, modestly.
 - [x] priorquery-render DROPPED 2026-08-23 at 90k/300k, cancelled by hand. Its
       files and stale RUNNING_JOB lock are left in place, untouched.
+- [x] *** affm-render AND dinolight-render BOTH COMPLETED 300k (2026-08-24) ***
+      Both wrote TRAINING_DONE; both successors auto-cancelled by chain_core; no
+      STABILITY_FAILURE, no gate trigger on either. Each took two jobs (24 h
+      walltime kill at 188k, clean resume from 188000.state).
+      *** NEITHER HAS BEEN EVALUATED. *** 300k of compute exists only as .pth
+      files -- no checkpoint selection, no metrics, no figures. experiments/ is
+      gitignored. THIS IS THE WORK MOST AT RISK OF BEING LOST.
+      Last training-time val (8-bit path, NOT the uint16 evaluation): affm best
+      24.402 @ 224k, dinolight best 24.304 @ 236k, both still climbing at 300k.
+      Do NOT quote those against addition-render's 24.081 -- different metric.
+- [x] aca-L6 6k INTEGRATION SMOKE PASSED (job 1792098, v100, 1h13m): rc=0, gate
+      ENFORCED across iteration 5000, no STABILITY_FAILURE, injection_ratio
+      0.24-0.86 (ACA convention, an order of magnitude below the addition arms'
+      ~1.03 -- not comparable to them), alpha 0.11920 -> 0.12756 rising,
+      ZERO affm_w_* keys as designed, 0.6831 s/iter on v100 (= dinolight's
+      0.6837 to within 0.1%) -> ~0.4495 s/iter on a100 -> 37.5 h for 300k.
+- [x] *** THE ACA LADDER BUILT (2026-08-24): aca-L6, aca-L36, aca-L6912 ***
+      Fusion IDENTICAL across all four ACA arms -- the same DinoAca block,
+      imported never copied. ONLY the layer set changes:
+        aca-L6      {6}         no AFFM        delta 1,349,773   -0.227% vs dinolight
+        aca-L36     {3,6}       2 convs        delta 1,351,311   -0.114%
+        aca-L6912   {6,9,12}    3 convs        delta 1,352,080   -0.057%
+        dinolight   {3,6,9,12}  4 convs        delta 1,352,849
+      LADDER SPREAD 0.227% -> a difference ACROSS the ladder is NOT attributable
+      to capacity. But EVERY ACA arm is ~4.6x addition-render, so THAT
+      comparison IS capacity confounded. Never conflate the two.
+      aca-L6 IS THE ONE THAT MATTERS: it is ONE factor from addition-render
+      (operator only, same B6, same mean, same injection point). Nothing else in
+      Phase 3 gives that. If only one ever runs, it must be that one.
+      NO AFFM in aca-L6 deliberately -- a 1-layer softmax is identically 1.0, so
+      a degenerate module would be 769 dead params. Asserted absent.
+      Each arm has its OWN arch file with its layer set HARD-CODED, not a config
+      flag: duplication over shared flags, so one arm can never silently alter
+      another. All three: 31/31 architectural smoke.
+      SCALE CHECK PASSED on aca-L6: attention matrix 64x64 at BOTH the
+      16x16-token and 32x32-token regimes while the grid demonstrably changes.
+      NO deadline guard on any of the three -- jobs resume after maintenance.
+- [x] AUG-28 IS NO LONGER A HARD DEADLINE (2026-08-24). Jobs resume after the
+      maintenance window, so an unfinished arm is not wasted. One asymmetry
+      remains and was deliberately NOT fixed: chain_dinolight_render.sh still
+      carries a DEADLINE_REACHED guard from when the deadline was believed hard.
+      It is UNREACHABLE (that arm finishes 2026-08-24) and editing a RUNNING
+      arm's chain script would land silently on its next resume. Remove it only
+      after dinolight has TRAINING_DONE.
+- [x] VRAM CORRECTION on record. On 2026-08-22 dinolight-render's peak VRAM was
+      quoted as 31,450 MiB and compared against addition-render's 25,117 MiB.
+      THOSE ARE DIFFERENT METRICS: 31,450 was the job's nvidia-smi whole-process
+      max_memory_usage (CUDA context + cuDNN workspace + allocator), 25,117 is
+      torch.cuda.max_memory_allocated. The comparison OVERSTATED the ACA's
+      memory cost. Measured on the SAME metric, same card, same job: addition
+      25,117 MiB vs aca-L6 25,214 MiB = +0.4%, consistent with the ACA's +0.5%
+      step-time cost.
 - [x] TWO BUGS CAUGHT BY THE PRE-LAUNCH SMOKE RUNS, both invisible to the architectural
       suite because they live in the basicsr integration path:
       (1) bare INTEGER yaml keys in the per-layer mean maps crashed
@@ -366,7 +418,42 @@ Dataset note: TWO datasets are now in play.
                                 no test split. train_/val_verynoisy built as symlinks from
                                 splits/*.txt (see DEVLOG Step 19).
 
-Last change: 2026-08-24 — TWO ARMS IN FLIGHT, FINISHING TODAY, AND A SURPRISE
+Last change: 2026-08-24 20:00 — BOTH LIVE ARMS FINISHED 300k; NOTHING IS RUNNING.
+
+affm-render and dinolight-render both completed 300,000 iterations cleanly and
+wrote TRAINING_DONE. The queue is empty and the account holds no a100 GRES.
+
+*** NEITHER IS EVALUATED. *** That is the single most urgent item: 300k of
+compute exists only as .pth files under a gitignored experiments/, with no
+checkpoint selection and no metrics. ~30 min of work on rtx3080/v100.
+
+Three ACA arms (aca-L6 {6}, aca-L36 {3,6}, aca-L6912 {6,9,12}) are built and
+smoke-passed but NOT submitted. aca-L6 is the one that matters -- ONE factor
+from addition-render, operator only -- and its 6k integration smoke passed.
+
+IMMEDIATE NEXT TASKS, in order:
+  1. evaluate affm + dinolight (VALIDATION only for selection, then both
+     protocols; do not touch the test split until reading it once)
+  2. submit aca-L6 (stage 1)
+  3. submit aca-L36 + aca-L6912 (stage 2) only after aca-L6 looks healthy
+
+Prior (2026-08-24, midday) — THE ACA LADDER IS BUILT; THE TWO LIVE ARMS
+FINISH TODAY.
+
+Three new arms exist and none is submitted: aca-L6 {6}, aca-L36 {3,6},
+aca-L6912 {6,9,12}. All share ONE DinoAca block and differ only by layer set,
+with a 0.227% parameter spread across the ladder — so the layer axis can finally
+be read WITHOUT a capacity confound. aca-L6 is the one that matters: it is ONE
+factor from addition-render, the operator-only comparison Phase 3 has never had.
+
+Aug-28 is no longer a hard deadline (jobs resume after maintenance), so the new
+arms carry no guard.
+
+IMMEDIATE NEXT TASKS, in order: (1) evaluate affm + dinolight at 300k on
+VALIDATION only, both protocols; (2) submit aca-L6 once a100 frees; (3) submit
+aca-L36 + aca-L6912 only after aca-L6 looks healthy.
+
+Prior (2026-08-24, midday) — TWO ARMS IN FLIGHT, FINISHING TODAY, AND A SURPRISE
 THAT IS NOT ABOUT PSNR.
 
 affm-render (243k/300k) and dinolight-render (241k/300k) are both training and
