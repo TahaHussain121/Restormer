@@ -288,6 +288,75 @@ are already submitted, so the answer costs no additional experiments.
 
 ---
 
+## SCOPE DECISIONS — taken deliberately, recorded so they read as decisions
+
+An unstated omission looks like an oversight; a stated scope decision looks
+like a decision. Same fact, completely different reception. Write each of
+these as a sentence in the thesis rather than leaving a reader to notice it.
+
+**1. The DINO prior is a PREMISE of this work, not a hypothesis under test.**
+The supervisor specified a DINO prior, so no no-DINO control (e.g. the render
+supplied as a plain input channel) was run. The research question is therefore
+**"given a DINO prior, how should it be injected?"** — and the four controlled
+answers (source, spatial structure, depth count, fusion operator) ARE the
+contribution. The consequence to state honestly: if asked whether raw render
+pixels could achieve the same, the answer is *out of scope, not tested*. That
+is fine, and only becomes a problem if a stronger claim is made anywhere.
+
+  Sentence to use: *"The use of a DINO prior is a premise of this work; the
+  contribution is the injection study."*
+
+**2. E0-Fixed is the reference, deliberately, and the handicap is answered.**
+Fixed 128 crops for every arm means the ONLY difference between arms is the
+DINO branch, which is what makes the ladder internally valid; it also matches
+common practice. E0-Fixed scores 0.53 dB BELOW the old progressive baseline
+(21.873 vs 22.405) because it never trains at the evaluation resolution.
+**Have the answer on a slide:** addition-render's 24.081 beats that older,
+STRONGER baseline too, by **+1.676 dB**. Registered in advance; not a
+weakness.
+
+**3. Each arm was trained ONCE, at a single seed. Not being reported.**
+Between-run variance was not measured. Checked against comparable theses in
+the field, where single-run reporting is the norm. Recorded here so the choice
+is visible rather than accidental.
+
+  **THE MITIGATION THAT COSTS NOTHING — LEAD WITH THE TREND, NOT THE DELTA.**
+  The depth ladder gives FOUR independently trained arms at increasing depth
+  counts (aca-L6 {6}, aca-L36 {3,6}, aca-L6912 {6,9,12}, dinolight {3,6,9,12}),
+  plus affm-render and dinolight-render both beating addition-render from
+  DIFFERENT fusion operators (+0.284 and +0.224). A monotonic trend across
+  several independent runs is a stronger argument than any single pairwise gap,
+  and needs no seed repeats.
+
+  Prefer: *"performance increases with the number of DINO depths across four
+  independently trained arms"*
+  Over:   *"+0.284 dB over addition-render"*
+
+  **AND DO NOT CLAIM THE affm-vs-dinolight GAP.** +0.284 vs +0.224 is 0.06 dB.
+  That is far below any plausible noise floor and cannot be claimed. What CAN
+  be claimed is parameter efficiency: both beat addition-render, and affm does
+  it at a FIFTH of the parameters. That claim does not depend on the small PSNR
+  difference at all.
+
+  Supporting evidence already in hand: concat-render reproduced as a clean null
+  (+0.023, p=0.49), which shows the measurement does not manufacture
+  differences — a method that finds nulls where nulls exist lends weight to its
+  positives.
+
+**4. crossattn-render and priorquery-render: not carried further.**
+No additional runs, and no further analysis. If crossattn is EXCLUDED, exclude
+it cleanly — do not leave it half-present in a results table. If it is KEPT,
+two sentences are enough and it earns its place: it is a negative result with a
+DIAGNOSED MECHANISM (a spatial softmax over 256 tokens does not survive
+becoming 1024), and it is the REASON the later arms use channel attention.
+Without it, ACA looks like an arbitrary choice rather than a fix for an
+identified failure. priorquery was dropped at 90k and produced no metrics.
+
+**5. Not attempted, and out of scope:** capacity-matched control for the ACA
+arms (they are ~4.6x addition-render, so Finding 6 stays capacity-confounded;
+Finding 5 does NOT, at +1%), DINO fine-tuning, alternative injection points,
+other datasets or degradation levels, and inference-time cost.
+
 ## If someone asks "so what is the contribution?"
 
 1. **The source of a foundation-model prior decides whether it helps or hurts.**
