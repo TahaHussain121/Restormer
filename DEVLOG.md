@@ -1214,3 +1214,233 @@ the other way.
   - co-inflation gate rule
   - E1-noisy's early peak at 128k -- unexplained
   - **Phase 3 is still entirely UNTRACKED in git**
+
+---
+
+## Step 32 — affm/dinolight evaluated; the F_sa finding; aca-L6-nosa built (2026-08-25 → 2026-08-26)
+
+Three things happened and they are separable. **(a)** affm-render and
+dinolight-render finished 300k and were finally evaluated on validation.
+**(b)** Verifying dinolight's numbers surfaced a structural observation about
+the ACA block that had not been noticed before. **(c)** A new arm,
+`aca-L6-nosa`, was built to test it. It is **built and smoke-passed, NOT
+submitted.**
+
+### (a) The two live arms, evaluated — VALIDATION ONLY
+
+Checkpoints selected on the 8-bit training-time validation curve, as
+pre-registered. The test split was **not** read for either arm.
+
+| arm | best iter | val PSNR (8-bit, selection) | top-5 spread |
+|---|---|---|---|
+| affm-render | 224,000 | 24.402 | 0.0525 dB |
+| dinolight-render | 272,000 | 24.3411 | 0.0369 dB |
+
+Neither peaked at 300k. affm's final is 24.335, BELOW its 224k best; dinolight's
+final 24.3069 is 3rd of its top 5. **The earlier "both still climbing at 300k"
+reading did not survive parsing the full curve** — that came from reading the
+tail of a noisy series, and the top-5 spreads (0.05 and 0.04 dB) say the
+selected checkpoint is barely distinguishable from four neighbours.
+
+Then the real evaluation, uint16 path, n=339, jobs 1793530-1793533:
+
+| arm | full256 PSNR | psnr_mask | ssim | ssim_mask | hf |
+|---|---|---|---|---|---|
+| E0-fixed | 22.077 | 17.978 | 0.7828 | 0.5686 | 0.200 |
+| addition-render | 24.120 | 19.893 | 0.8178 | 0.6473 | 0.336 |
+| concat-render | 24.143 | 19.963 | 0.8192 | 0.6512 | 0.322 |
+| global-render | 20.585 | 17.077 | 0.7341 | 0.5425 | 0.264 |
+| **affm-render** | **24.404** | **20.154** | **0.8243** | **0.6569** | 0.315 |
+| **dinolight-render** | **24.344** | 20.113 | 0.8235 | 0.6522 | 0.274 |
+
+Paired per-image against addition-render (full256 val, n=339):
+
+| arm | mean delta | 95% CI | better on | wilcoxon p |
+|---|---|---|---|---|
+| affm-render | **+0.284 dB** | [+0.176, +0.393] | 219/339 (64.6%) | 1.0e-09 |
+| dinolight-render | **+0.224 dB** | [+0.105, +0.344] | 198/339 (58.4%) | 1.3e-04 |
+| concat-render | +0.023 dB | [-0.072, +0.118] | 181/339 (53.4%) | 0.49 |
+
+concat reproducing as a clean tie is the control that says the method works.
+
+**HOW TO STATE THIS, AND HOW NOT TO.** Both gaps are statistically real — the
+CIs exclude zero comfortably. **Neither clears the pre-registered +0.30 dB
+"meaningful" bar**: affm at +0.284 falls short and its CI straddles 0.30, so it
+is unresolved in both directions. affm-render's registered prediction ("not
+>0.10 dB") is **FALSIFIED** — the CI lower bound is +0.176. dinolight's ("not
+>0.30 dB") **HOLDS**.
+
+**The capacity confound differs sharply between the two and must not be
+averaged over.** affm-render is +298,372 params vs addition-render's +295,296 —
+within 1.04%, which is the entire reason AFFM was chosen over a concat. Its
+result is NOT attributable to capacity. dinolight-render is +1,352,849, ~4.6x,
+so its +0.224 IS capacity confounded.
+
+Cleanest defensible sentence available today: *adding DINO layers {3,6,9,12}
+with a per-position softmax fusion, at essentially zero parameter cost, gives
++0.284 dB over the single-layer {6} addition arm on validation.*
+
+Note the ordering: **affm-render, with the SIMPLE fusion, beats dinolight-render,
+with the sophisticated one** (+0.284 vs +0.224). That is what motivated (b).
+
+### The verification pass on dinolight, and a metadata trap
+
+Before trusting 24.344 it was re-derived four ways. All four agree:
+
+  - **provenance** — `predict_metadata.json` confirms `net_g_272000.pth`, the
+    selected checkpoint, git commit 7873004.
+  - **metrics recomputed from the raw PNGs**, independently of
+    `masked_metrics.py`: mean 24.344305 vs 24.344305, max per-image deviation
+    **7.1e-15 dB** (full) and **exactly 0** (mask).
+  - **aggregation** — every summary mean and median matches the per-image CSV
+    to 0.0e+00 across all eight metrics, n=339 both sides.
+  - **the gate is alive** — `alpha_logit` = -1.8470 -> alpha = **0.1362**, up
+    from the 0.1192 it was initialised at.
+
+**THE TRAP, RECORDED SO NOBODY RE-DISCOVERS IT AS A BUG.**
+`predict_metadata.json` reports `block_1indexed: 6` and a single mean path
+`render_B6_eval256_dino448_mean.pt` for dinolight-render — which reads as if the
+evaluation used ONE layer instead of {3,6,9,12}. **It did not.** Those are the
+legacy scalar fields written verbatim at `predict_phase3.py:229-231`, and they
+do not describe the multi-layer path. The checkpoint carries all eight per-layer
+mean buffers (`mu_b3/b6/b9/b12` x `train128/eval256`) plus four `affm.score`
+convs, and `predict_phase3.py:90` loads with `strict=True`, so a single-layer
+model would have thrown on unexpected keys rather than loading quietly. **This
+is a metadata reporting gap, not a computational one** — but it is a live trap
+for anyone reading that JSON later, and it applies to every multi-layer arm.
+
+### (b) THE F_sa FINDING — the ACA block contains a redundant MDTA
+
+`DinoAca` computes two attentions and sums them before one output conv:
+
+    guided = project_out(F_sa + alpha * F_ca) + F
+
+`F_ca` is the point of the block: the latent attending to the DINO prior.
+**`F_sa` is the latent attending to ITSELF — and that is Restormer's own MDTA,
+step for step**: 1x1 + 3x3 depthwise projections, L2-normalise along the token
+axis, per-head multiplicative temperature, channel x channel softmax. Compare
+`dino_aca.py:_attend` with `restormer_arch.py` `Attention.forward`.
+
+The ACA is applied to `inp_enc_level4`, whose output goes **straight into
+`self.latent`** — EIGHT transformer blocks that each already run exactly that
+operation. **So F_sa is a ninth MDTA immediately in front of eight more, with
+its own weights, trained from scratch.**
+
+Measured on dinolight-render `net_g_272000.pth`:
+
+| piece | params |
+|---|---|
+| ACA self-attention half (`to_q/k/v`, `temperature_sa`) | **452,742** |
+| ACA cross-attention half (`to_*_cross`, `temperature_ca`) | 452,742 |
+| shared (norms, `project_out`, `alpha`) | 148,993 |
+| **ACA total** | **1,054,477** |
+| the 8 latent blocks it feeds — MDTA attention alone | 4,801,600 |
+
+F_sa is **43% of the fusion block** and roughly a third of the arm's entire
++1,352,849 delta over E0.
+
+**What the trained model did with it.** `dino_aca.py:170` already logs
+`aca_ca_to_sa_ratio = ||alpha*F_ca|| / ||F_sa||`. Over dinolight's 300k it rose
+from 0 (alpha and P are both zero-init, so F_ca starts at exactly 0) to:
+
+    iter 150,000   7.75      iter 300,000   7.94
+    mean over the last 100k iterations:  8.157   (n=100 unique points)
+
+The DINO half ends up carrying **~8x the magnitude** of the self half.
+
+**THIS IS A MAGNITUDE, NOT A CAUSAL RESULT, AND THE DISTINCTION IS THE WHOLE
+POINT.** A small-norm term can still matter: F_sa and alpha*F_ca are summed and
+pushed through ONE shared `project_out`, so F_sa is also the baseline the cross
+term is added onto. The ratio **motivates** an ablation; it does not substitute
+for one. Do not write "F_sa does nothing" — the defensible sentence is:
+
+> In dinolight-render the self-attention branch converges to ~1/8 the magnitude
+> of the gated cross-attention branch, while duplicating an operation the
+> trunk's eight latent blocks already perform, at 43% of the fusion block's
+> parameter cost.
+
+**THIS IS NOT A CLAIM THAT DINOLight IS IMPLEMENTED WRONGLY.**
+dinolight-render reproduces a published block faithfully and must keep doing so;
+that is what the arm is for. The redundancy is a property of the published
+design on our architecture, which is a finding, not a bug.
+
+It also sharpens the capacity story: dinolight spends ~1.35M parameters for
++0.224 dB while affm-render spends ~298k for +0.284 dB, and a third of
+dinolight's extra capacity goes to a branch the model itself down-weights 8:1.
+
+### (c) aca-L6-nosa — BUILT AND SMOKE-PASSED, NOT SUBMITTED
+
+    addition-render   guided = F + P(D)
+    aca-L6            guided = project_out(F_sa + alpha * F_ca) + F
+    aca-L6-nosa       guided = project_out(       alpha * F_ca) + F
+
+Files: `basicsr/models/archs/dino_aca_nosa.py` (`DinoAcaNoSa`),
+`basicsr/models/archs/restormer_aca_l6_nosa_render_arch.py`,
+`configs/aca_render_fixed128_L6_nosa_latent.yml`,
+`scripts/chain_aca_render_fixed128_L6_nosa_latent.sh`,
+`scripts/smoke_tests_aca_nosa.py`.
+
+**`dino_aca.py` WAS NOT TOUCHED, DELIBERATELY.** Three ACA arms were RUNNING
+when this was built and a chain script re-reads the arch on the NEXT RESUME,
+silently, hours later. `DinoAcaNoSa` SUBCLASSES `DinoAca` and deletes the SA
+half after construction, which buys two things:
+
+  1. `_attend`, `_split`, `attn_shape`, both LayerNorms and `project_out` are
+     INHERITED, so the cross path is provably the code aca-L6 runs.
+  2. The parent draws the SA projections FIRST and the cross projections
+     SECOND, so building-then-deleting leaves `to_*_cross` holding the **SAME
+     draws aca-L6 gives them**. Verified: max abs diff **0.000e+00**. The two
+     arms start from an identical cross branch, which makes this one-factor at
+     initialisation and not merely similar.
+
+**A RISK THAT WAS CHECKED, AND MUST BE CHECKED AGAIN FOR ANY NEW ARM.**
+`basicsr/models/archs/__init__.py` scans for `*_arch.py` and imports EVERY
+match. A new arch file that fails to import would kill the registry import for
+**every running arm's next resume**. The scan was re-run explicitly: 13 modules
+import, and all five existing arch classes still resolve.
+
+Smoke: `smoke_tests_aca_nosa.py`, **29/29 passed**, CPU, no dataset needed.
+
+  - step-0 output **bit-identical to E0** at BOTH train128 and eval256
+    (`0.000e+00`), 494/494 trunk tensors byte-identical
+  - **zero** `to_q.` / `to_k.` / `to_v.` / `temperature_sa` keys in
+    `state_dict` and in `named_parameters`
+  - param delta vs aca-L6 is **exactly -452,742**, and the symmetric difference
+    of the two key sets minus the SA keys is **0** — nothing else moved
+  - E0 26,124,052 | aca-L6 114,054,305 | **nosa 113,601,563**
+  - cross branch identical to aca-L6 (`0.000e+00`), `project_out` still zero,
+    alpha 0.11920
+  - `attn_shape` (6,64,64) at BOTH 16x16 and 32x32 tokens — the
+    scale-invariance property crossattn-render lacked
+
+**THREE COMPARISONS, THREE CAVEATS — NEVER CONFLATE THEM.**
+
+| against | factors | caveat |
+|---|---|---|
+| **aca-L6** | ONE (F_sa), identical cross init | the comparison it was built for; nosa is SMALLER, so a win is not a capacity artefact |
+| addition-render | add vs gated cross-attention | smaller capacity gap than aca-L6's ~4.6x, still NOT parameter-matched |
+| dinolight-render | THREE (layer count, AFFM, F_sa) | meaningless as an ablation |
+
+One deliberate asymmetry: `aca_ca_to_sa_ratio` is emitted as **exactly 0.0**
+rather than dropped, so the observation series keeps the same shape across the
+ladder and a reader greping for it sees "absent" rather than "missing".
+
+**Not run:** the 6k integration smoke. aca-L6's integration run covers the
+shared `DinoAca` code path, but the affm precedent is that integration bugs live
+where the architectural test cannot reach.
+
+### Still open
+
+  - **aca-L6-nosa is not submitted.** One arm, ~37.5 h on a100 = two jobs.
+  - aca-L6 / aca-L36 / aca-L6912 all RUNNING as of 2026-08-26, successors
+    queued (1794252-1794254). None evaluated.
+  - **The test split is unread for affm-render, dinolight-render and the whole
+    ACA ladder.** Read it once, for all arms together.
+  - addition-render has **no `crop128_val`** cell — only `crop128_test`. Job
+    1794421 queued to fill it; until it lands the crop128 val comparison
+    cannot include addition-render.
+  - priorquery-render: DROPPED at 90k, zero metrics, stale `RUNNING_JOB` lock
+    (1785021) that MUST stay so the dead arm cannot auto-resume.
+  - HANDOVER.md line 97 still lists global-render as *in flight* 90k/300k. It
+    is DONE at 300k and evaluated (20.589, -1.284 vs E0); line 167 is correct
+    and line 97 is stale.
