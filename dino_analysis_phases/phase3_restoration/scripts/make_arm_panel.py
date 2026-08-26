@@ -85,6 +85,10 @@ def main():
     ap.add_argument('--panel', type=float, default=4.6,
                     help='inches per panel; raise it for fewer, larger cases')
     ap.add_argument('--out', default=None)
+    ap.add_argument('--exclude', default=None,
+                    help='comma-separated filenames to drop from the ranking '
+                         'BEFORE selection, so a second figure shows different '
+                         'cases without the choice ever seeing an arm score')
     ap.add_argument('--arms', default=None,
                     help='comma-separated arm names to include; E0 is always '
                          'kept and forced first, because it is both the case '
@@ -115,6 +119,15 @@ def main():
 
     e0 = tables['E0']
     common = sorted(set.intersection(*(set(t) for t in tables.values())))
+    if args.exclude:
+        drop = {f.strip() for f in args.exclude.split(',') if f.strip()}
+        missing = drop - set(common)
+        if missing:
+            print(f'  (--exclude names not in the common set, ignored: '
+                  f'{sorted(missing)})')
+        hit = drop & set(common)
+        common = [fn for fn in common if fn not in drop]
+        print(f'  excluded {len(hit)} case(s); {len(common)} remain')
     ranked = sorted(common, key=lambda fn: float(e0[fn]['psnr_full']))
     if args.mode == 'harsh':
         chosen = [(f'E0 rank {i + 1}', fn) for i, fn in enumerate(ranked[:args.n_cases])]
