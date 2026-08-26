@@ -50,6 +50,8 @@ ARMS = [
     ('concat-render',     'Holo_concat_render_fixed128_spatial_B6_latent',         'render, concat'),
     ('crossattn-render',  'Holo_crossattn_render_fixed128_spatial_B6_latent',      'render, attn radar-Q'),
     ('priorquery-render', 'Holo_priorquery_render_fixed128_spatial_B6_latent',     'render, attn prior-Q'),
+    ('affm-render',       'Holo_affm_render_fixed128_spatial_L3691_latent',        'layers {3,6,9,12}, add'),
+    ('dinolight-render',  'Holo_dinolight_render_fixed128_L3691_aca_latent',       'layers {3,6,9,12}, ACA'),
 ]
 
 
@@ -83,10 +85,25 @@ def main():
     ap.add_argument('--panel', type=float, default=4.6,
                     help='inches per panel; raise it for fewer, larger cases')
     ap.add_argument('--out', default=None)
+    ap.add_argument('--arms', default=None,
+                    help='comma-separated arm names to include; E0 is always '
+                         'kept and forced first, because it is both the case '
+                         'selection reference and the delta baseline')
     args = ap.parse_args()
 
+    if args.arms:
+        want = [a.strip() for a in args.arms.split(',') if a.strip()]
+        unknown = [a for a in want if a not in {n for n, _, _ in ARMS}]
+        if unknown:
+            raise SystemExit(f'unknown arm(s): {unknown}')
+        keep = ['E0'] + [a for a in want if a != 'E0']
+        arm_defs = sorted((a for a in ARMS if a[0] in keep),
+                          key=lambda a: keep.index(a[0]))
+    else:
+        arm_defs = ARMS
+
     arms, tables = [], {}
-    for name, exp, note in ARMS:
+    for name, exp, note in arm_defs:
         t = read_csv(os.path.join(_PHASE3, 'results', exp, 'metrics',
                                   f'{args.protocol}_{args.split}_per_image.csv'))
         if t is None:
