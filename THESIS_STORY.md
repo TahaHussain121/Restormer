@@ -93,6 +93,86 @@ the projection is unchanged and the arm is within 1% of addition-render's
 parameter count. **A gain here CANNOT be blamed on capacity** — that is the
 entire reason AFFM was used instead of a concat.
 
+### Q6a — Does the layer ablation INVALIDATE the Phase-1/2 layer study?
+
+**NO. It extends it, and the learned weights support it.** Write this down,
+because the panic reflex is to think the multi-layer result makes the earlier
+depth study look like wasted work. It does not, for two independent reasons.
+
+**REASON 1 — the headline result IS the Phase-1/2 layer.** The best model this
+project has produced is `addition-render`: **24.081 on the LOCKED TEST SPLIT,
++2.208 vs E0, improved on 298/338 images (88.2%)**. That model uses **B6
+alone** — the depth Phase 1/2 selected. The multi-layer result is a **+0.284 dB
+refinement ON VALIDATION ONLY** that does not clear the pre-registered +0.30 dB
+bar. The main claim rests on Phase 1/2; the layer ablation is a follow-up.
+
+**REASON 2 — the learned AFFM weights put B6 in the stable core.** affm-render
+logs a per-position softmax across the four depths (they sum to 1 at each of
+the 256 positions). Mean and std over the LAST 100 logged points (iter > 200k),
+where uniform would be 0.2500:
+
+| depth | mean weight | std | min | max |
+|---|---|---|---|---|
+| B3 | 0.2161 | 0.0358 | 0.1453 | 0.2884 |
+| **B6** | **0.2568** | **0.0155** | 0.2303 | 0.2812 |
+| B9 | **0.3261** | 0.0182 | 0.2996 | 0.3678 |
+| B12 | 0.2010 | 0.0342 | 0.1359 | 0.2749 |
+
+Two things to read off it, and one not to.
+
+  - **NO DEPTH IS EVER DISCARDED.** The minimum any weight reaches across the
+    ENTIRE 300k run is **0.1028** (B3). The network keeps all four.
+  - **THE MID-DEPTHS ARE THE STABLE CORE.** B6 and B9 carry the most weight AND
+    are the most stable (std 0.0155 and 0.0182). B3 and B12 wander with roughly
+    **twice** the std (0.0358, 0.0342). **B6 has the tightest weight of all
+    four.**
+  - **DO NOT rank B9 above B6 as a finding.** The weights are NON-STATIONARY:
+    over the run B12 went from 0.3592 at 151k to 0.1729 at 299k. Only report a
+    windowed mean, state the window, and say nothing about a strict ordering
+    among the two wandering depths.
+
+**THE SENTENCE TO WRITE:**
+
+> Phase 1/2 identified B6 as the strongest single depth, and that choice powers
+> the project's best test-split result. The layer ablation then shows the best
+> single depth is not SUFFICIENT: a learned per-position combination over
+> {3,6,9,12} adds a further +0.284 dB at +1% parameters, never discards any
+> depth, and independently places B6 in the stable core of the learned
+> weighting.
+
+That is a progression — best-single, then best-combination — not a reversal.
+
+### Q6b — Is plain addition "cheating"? Does it fail to SELECT?
+
+Recorded because this doubt keeps recurring. Two separate worries, and they
+have different answers.
+
+**THE LEAKAGE WORRY IS ALREADY ANSWERED.** The render is an INPUT channel
+available at test time, not derived from the 1e7 target. `CONTEXT.md:531`:
+*"render is normally available, so this is a usable method, not only an
+oracle."* The 1e7 is target only.
+
+**THE "IT DOES NOT SELECT" WORRY IS MISTAKEN AS STATED.** Addition does not
+hand the network the render. The prior passes through `P = Conv2d(768, 384, 1)`,
+zero-initialised — a LEARNED readout free to suppress any channel. In
+affm-render there is a SECOND selection stage on top: a per-position softmax
+across depths. So affm-render selects twice — across channels and, per
+position, across depths. What it does not do is softmax over spatial positions.
+
+**AND THE UNCOMFORTABLE PART, WHICH IS THE ACTUAL RESULT.** "Selective
+attention should beat naive addition" is a hypothesis these experiments are
+currently FALSIFYING:
+
+  - spatial attention broke on scale transfer (-7.56 dB at full256)
+  - channel attention over the same four depths got **+0.224** where plain
+    addition over those depths got **+0.284**, at a fifth of the parameters
+
+That is a RESULT, and a more interesting one than confirming the assumption.
+Note also that **no paper in the reference set does what these attention arms
+do** — Perceive-IR's prior is a global 1x768 vector with no spatial tokens to
+attend over at all, and DSGIR is paywalled and was never verified. These are
+novel constructions, so this is not a failure to reproduce anyone.
+
 ### Q7 — Does the PUBLISHED method beat it?
 
 | arm | params vs addition | split | PSNR | vs addition | p |
@@ -154,6 +234,15 @@ magnitude of the self half.
   IT IS ALSO NOT A CLAIM THAT DINOLight IS IMPLEMENTED WRONGLY. That arm
   reproduces a published block faithfully and must keep doing so.
 
+**SCOPE — YOU DO NOT NEED TO RERUN THE LADDER FOR THIS.** One comparison
+answers it: **aca-L6 vs aca-L6-nosa**, same depth, same everything, one branch
+removed, and the cross branch verified byte-identical at initialisation
+(0.000e+00). That licenses the claim *"the ACA's self-attention branch is
+redundant given Restormer's trunk"*. `nosa` variants of L36 / L6912 /
+dinolight would only test whether that redundancy also holds at other depth
+counts — a robustness check, NOT a claim the thesis needs. Both required runs
+are already submitted, so the answer costs no additional experiments.
+
 ---
 
 ## THE CAVEATS YOU MUST CARRY INTO THE WRITE-UP
@@ -187,7 +276,13 @@ magnitude of the self half.
 6. **Checkpoint top-5 spreads are tiny** (affm 0.0525 dB, dinolight 0.0369 dB).
    The selected checkpoint is barely distinguishable from four neighbours.
 
-7. **`injection_ratio` is NOT comparable between ACA arms and addition arms.**
+7. **The AFFM layer weights are NON-STATIONARY.** Over the run B12 went from
+   0.3592 at 151k to 0.1729 at 299k. Report a WINDOWED MEAN and state the
+   window, or say nothing. The two claims that ARE stable: no depth is ever
+   discarded (whole-run minimum 0.1028), and B6/B9 are the stable core with
+   roughly half the std of B3/B12.
+
+8. **`injection_ratio` is NOT comparable between ACA arms and addition arms.**
    The ACA arms log `||alpha*F_ca||` before the output conv (~0.05-0.3); the
    addition arms sit at ~1.03. Compare ACA to ACA.
 

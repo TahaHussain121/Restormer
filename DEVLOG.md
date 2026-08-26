@@ -1429,6 +1429,41 @@ ladder and a reader greping for it sees "absent" rather than "missing".
 shared `DinoAca` code path, but the affm precedent is that integration bugs live
 where the architectural test cannot reach.
 
+### (d) The AFFM learned layer weights — recorded, because the log is gitignored
+
+affm-render's per-position softmax across {3,6,9,12} (the four weights sum to 1
+at each of the 256 positions). Mean/std over the LAST 100 logged points
+(iter > 200k). Uniform would be 0.2500.
+
+| depth | mean | std | min | max |
+|---|---|---|---|---|
+| B3 | 0.2161 | 0.0358 | 0.1453 | 0.2884 |
+| B6 | **0.2568** | **0.0155** | 0.2303 | 0.2812 |
+| B9 | **0.3261** | 0.0182 | 0.2996 | 0.3678 |
+| B12 | 0.2010 | 0.0342 | 0.1359 | 0.2749 |
+
+  - **No depth is ever discarded.** Whole-run minimum across all four is
+    **0.1028** (B3). The network keeps all four for all 300k.
+  - **The mid-depths are the stable core.** B6 and B9 carry the most weight and
+    have roughly HALF the std of B3 and B12. B6's weight is the tightest of the
+    four.
+  - **DO NOT rank B9 above B6 as a finding.** These weights are
+    NON-STATIONARY -- B12 ran 0.3592 at 151k to 0.1729 at 299k. Report a
+    windowed mean, state the window, and claim no strict ordering among the two
+    wandering depths.
+
+**WHY THIS MATTERS BEYOND THE NUMBERS.** The reflex reading of Step 32(a) is
+that the multi-layer result invalidates the Phase-1/2 depth study. It does not:
+
+  1. The project's best TEST-split model, addition-render (24.081, +2.208,
+     298/338 improved), uses **B6 alone** -- the depth Phase 1/2 selected. The
+     multi-layer gain is +0.284 dB on VALIDATION ONLY and does not clear the
+     pre-registered +0.30 bar.
+  2. The learned weighting independently places **B6 in the stable core**.
+
+The progression is best-single-depth -> best-combination, not a reversal. See
+`THESIS_STORY.md` Q6a for the sentence to write.
+
 ### Still open
 
   - **aca-L6-nosa is not submitted.** One arm, ~37.5 h on a100 = two jobs.
