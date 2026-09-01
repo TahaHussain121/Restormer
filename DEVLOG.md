@@ -1479,3 +1479,155 @@ The progression is best-single-depth -> best-combination, not a reversal. See
   - HANDOVER.md line 97 still lists global-render as *in flight* 90k/300k. It
     is DONE at 300k and evaluated (20.589, -1.284 vs E0); line 167 is correct
     and line 97 is stale.
+
+---
+
+## Step 33 — The ACA ladder finished, and the operator question is answered (2026-08-29 → 08-31)
+
+**Phase 3 is COMPLETE.** Every arm except priorquery-render is trained and
+evaluated on both splits and both protocols.
+
+### What finished
+
+aca-L6, aca-L36 and aca-L6912 all reached **300,000** iterations (jobs
+1793518/27/28 timing out at 24 h, resumed by 1794252/53/54, ~38.7 h total each).
+No `CHAIN_ABORTED`, no `STABILITY_FAILURE`.
+
+**Nothing selected their checkpoints, because nothing was asked to.**
+`chain_core.sh` manages training only — it writes `TRAINING_DONE` and exits. It
+never calls `select_best_checkpoint.py`. concat-render got selected
+automatically because a deferred dispatcher was submitted with
+`--dependency=afterany`; the ACA arms had no such dispatcher attached. Selection
+was run by hand on 08-31. **Attach a dispatcher, or plan to run selection
+manually — the chain will not do it.**
+
+Related, and worth one line in the methods: **BasicSR has no best-model
+tracking at all** (zero hits for `best_metric` / `save_best` / `is_best`).
+Validation runs on its own every `val_freq` and logs a PSNR; nothing compares
+scores. Also `save_checkpoint_freq` is 2000 while `val_freq` is 4000, so only
+~75 of the 151 saved checkpoints per arm are ever scored, and every selected
+iteration is a multiple of 4000.
+
+### Selected checkpoints (VALIDATION only, as pre-registered)
+
+| arm | best iter | val PSNR (8-bit) | top-5 spread |
+|---|---|---|---|
+| addition-render | 204,000 | 24.1171 | 0.0921 |
+| aca-L6 | 236,000 | 24.1921 | 0.1177 |
+| aca-L36 | 296,000 | 24.2355 | 0.0125 |
+| aca-L6912 | 224,000 | 24.2192 | 0.0265 |
+| dinolight-render | 272,000 | 24.3411 | 0.0369 |
+| affm-render | 224,000 | 24.4020 | 0.0525 |
+
+### THE TEST RESULT — n=338, uint16, jobs 1799708-1799717
+
+| arm | dep | full256 | vs E0 | crop128 | vs E0 | psnr_mask | ssim |
+|---|---|---|---|---|---|---|---|
+| E0-Fixed | — | 21.873 | — | 19.546 | — | 17.599 | 0.7829 |
+| E1-addition-noisy | 1 | 21.296 | -0.577 | 19.062 | -0.484 | 17.210 | 0.7622 |
+| global-render | 1 | 20.589 | -1.284 | 19.352 | -0.194 | 16.947 | 0.7327 |
+| addition-render | 1 | 24.081 | +2.208 | 22.259 | +2.713 | 19.673 | 0.8220 |
+| concat-render | 1 | 24.065 | +2.193 | 22.473 | +2.927 | 19.741 | 0.8227 |
+| aca-L6 | 1 | 24.111 | +2.238 | 21.955 | +2.409 | 19.761 | 0.8211 |
+| aca-L36 | 2 | 24.196 | +2.323 | 22.128 | +2.583 | 19.895 | 0.8238 |
+| aca-L6912 | 3 | 24.071 | +2.199 | 21.870 | +2.324 | 19.648 | 0.8215 |
+| dinolight-render | 4 | **24.390** | +2.517 | 22.053 | +2.507 | **19.972** | 0.8276 |
+| affm-render | 4 | 24.311 | +2.439 | **22.303** | +2.758 | 19.923 | **0.8279** |
+
+Paired per-image against addition-render:
+
+| arm | test full256 | p | test crop128 | p |
+|---|---|---|---|---|
+| concat-render | -0.016 | 0.98 | +0.214 | 1.7e-04 |
+| **aca-L6** | **+0.030** | **0.22 NULL** | **-0.304** | 1.3e-06 |
+| aca-L36 | +0.115 | 0.011 | -0.130 | 0.032 |
+| aca-L6912 | -0.010 | 0.88 | -0.389 | 4.3e-08 |
+| dinolight-render | +0.309 | 9.9e-08 | -0.206 | 0.0054 |
+| affm-render | +0.230 | 4.3e-07 | +0.044 | 0.14 |
+
+### FINDING 6 — THE FUSION OPERATOR BUYS NOTHING
+
+`aca-L6` is ONE FACTOR from addition-render — same depth {6}, same layer, same
+mean, same injection point, only the operator differs. **+0.030 dB, p=0.22, not
+significant, for ~4.6x the parameters.** Confirmed independently on both
+splits: validation +0.075 (p=0.075, n.s.), test +0.030 (p=0.22, n.s.).
+
+This is the arm the whole ACA ladder existed to produce, and it settles the
+question dinolight-render could not: **the gain came from the depth count, not
+the fusion operator.**
+
+### FINDING 7 — THE ATTENTION ARMS PAY A crop128 PENALTY
+
+**Every ACA arm, dinolight included, is SIGNIFICANTLY WORSE than
+addition-render on crop128** while gaining (or not) on full256. affm-render is
+the only multi-depth arm that loses nowhere. **Never report full256 alone for
+these arms** — it is the single most important reporting rule in the project.
+
+### aca-L6-nosa: BUILT, SMOKE-RUN, AND IT CANNOT TRAIN
+
+The 6k integration smoke (job 1794461, a100, 49 min) returned rc=0 but
+`projected_norm`, `injection_ratio` and `aca_injected_norm` were **exactly
+0.0000e+00 at every print**, with CA entropy pinned at ln(64) = 4.1589
+(uniform) and alpha moving only by weight decay.
+
+**Diagnosis, verified on a real backward pass:**
+
+    gradient reaching project_out:   aca-L6 (with F_sa) 1.754    nosa 0.000
+
+With `P` and `project_out` both zero-initialised, the cross branch outputs zero,
+so `project_out`'s input is zero — and a conv's weight gradient is proportional
+to its input. `project_out` therefore receives zero gradient forever, and
+nothing upstream of it ever learns. **`F_sa` is what breaks that deadlock in the
+working arms**, which is the "three-step gradient staircase" the arch docstring
+describes.
+
+**This is a finding, not just a bug: F_sa is LOAD-BEARING FOR OPTIMISATION, not
+only for representation.** A naive "remove F_sa" ablation is impossible under
+double zero-init. The fix — initialise `P` normally, keep `project_out` at zero
+— preserves the step-0 identity with E0 but makes the arm differ from aca-L6 in
+two ways, so it is no longer a one-factor ablation.
+
+The architectural suite passed 29/29 because it only checks that step 0 equals
+E0 — which is true; the arm simply never leaves step 0. **The 6k integration
+smoke existed for exactly this and it worked: the arm was never submitted, so
+the cost was 49 minutes rather than 38 hours.** Do NOT write "F_sa does
+nothing", and do NOT claim dinolight is implemented wrongly.
+
+### The AFFM weight MAPS (job 1794607) — AFFM is genuinely spatial
+
+The training log carries only position-AVERAGED weights. The maps recover the
+rest, at 300k, std computed ACROSS POSITIONS:
+
+| depth | mean | std over positions |
+|---|---|---|
+| B3 | 0.2567 | 0.1590 |
+| B6 | 0.2458 | 0.1053 |
+| B9 | 0.3001 | 0.1049 |
+| B12 | 0.1973 | 0.1126 |
+
+Variation of 0.10-0.16 against means of 0.20-0.30 is **large**: the per-position
+choice is real, not a flat global mix. **AFFM is nothing like the pooled
+global-render arm** — global pools over SPACE, AFFM sums over LAYERS per
+position. They collapse orthogonal axes, which is why they land on opposite
+sides of baseline.
+
+### Test-split honesty
+
+The test split was read in **several passes** — the original three arms on
+08-14, then concat / crossattn / global, then these five on 08-31. The
+pre-registration asked for one pass. **Checkpoint selection never touched
+test**: every arm was selected on validation alone, verified for all eleven
+evaluated arms. Report it that way; do not claim a single clean read.
+
+### Still open
+
+  - priorquery-render: DROPPED at 90k, zero metrics, stale `RUNNING_JOB` lock
+    (1785021) that MUST stay so the dead arm cannot auto-resume.
+  - No capacity control for the ACA arms. **aca-L6 partly closes this**: a 4.6x
+    arm landing level with addition-render says the extra capacity is roughly
+    neutral at this data scale.
+  - No seed replication, deliberately (see `THESIS_STORY.md` scope decisions).
+    Cross-split replication substitutes: affm +0.284 val / +0.230 test,
+    aca-L6 null on both.
+  - `HANDOVER.md` line 97 still lists global-render as *in flight* 90k/300k. It
+    is DONE at 300k and evaluated. Line 167 is correct; line 97 is stale.
