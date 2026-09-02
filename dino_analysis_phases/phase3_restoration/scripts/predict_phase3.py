@@ -71,6 +71,30 @@ def load_uint16(path):
     return img
 
 
+def shift_render(render, dx):
+    """Displace the render by dx pixels along x, filling the vacated strip with
+    zeros.
+
+    The renders are drawn on a black background, so zero is the correct fill:
+    a displaced render is what the pipeline would produce if the render stream
+    were misregistered against the radar, and the region the object vacates is
+    genuinely background. np.roll is deliberately NOT used -- wrapping would
+    reintroduce object structure on the opposite edge and understate the damage.
+
+    Only the DINO input is displaced. The radar, the target and the crop window
+    are untouched, so this isolates render-to-radar misalignment and nothing
+    else.
+    """
+    if dx == 0:
+        return render
+    out = np.zeros_like(render)
+    if dx > 0:
+        out[:, dx:] = render[:, :-dx]
+    else:
+        out[:, :dx] = render[:, -dx:]
+    return out
+
+
 def read_manifest(path):
     rows = {}
     with open(path) as f:
@@ -102,6 +126,11 @@ def main():
                     help='results/<experiment>/predictions')
     ap.add_argument('--device', default='cuda')
     ap.add_argument('--limit', type=int, default=0, help='smoke tests only')
+    ap.add_argument('--render-shift', type=int, default=0,
+                    help='displace the render by N pixels along x before it '
+                         'reaches DINO (render arms only). 0 = the normal '
+                         'aligned path. Controls only; never used for a '
+                         'headline number.')
     args = ap.parse_args()
 
     with open(args.config) as f:
@@ -123,6 +152,10 @@ def main():
     # (Dataset_PairedImage_uint16_RenderStacked). Detected from the config, so a
     # new subclass cannot quietly fall through to the single-channel path.
     needs_render = cfg['network_g'].get('dino_source') == 'render'
+    if args.render_shift and not needs_render:
+        raise SystemExit(f'--render-shift {args.render_shift} given, but '
+                         f'{arch_type} has no render stream to displace. '
+                         f'Refusing to run a control that does nothing.')
 
     net = build_model(cfg, args.weights, args.device)
     is_dino = hasattr(net, 'set_dino_mode')
@@ -191,6 +224,9 @@ def main():
                 if render.shape != lq.shape:
                     raise SystemExit(f'{image_id}: render {render.shape} != '
                                      f'lq {lq.shape}')
+                # displace BEFORE the crop, so crop128 sees the misalignment
+                # the same way the full frame does
+                render = shift_render(render, args.render_shift)
 
             if args.protocol == 'crop128':
                 x, y, s = crops[image_id]
@@ -225,6 +261,7 @@ def main():
         'weights': os.path.abspath(args.weights),
         'split': args.split, 'protocol': args.protocol,
         'n_images': len(ids),
+        'render_shift_px': args.render_shift,
         'manifest': os.path.abspath(args.manifest) if args.manifest else None,
         'dino': ({'mode': net.dino_mode,
                   'block_1indexed': net.dino_block_1indexed,
