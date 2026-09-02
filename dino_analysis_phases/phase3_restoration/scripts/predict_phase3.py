@@ -51,7 +51,24 @@ from basicsr.models.archs import define_network            # noqa: E402
 import dino_shared                                          # noqa: E402
 
 DATASET = '/home/woody/iwnt/iwnt174h/thesis_dino/holographic_image_dataset'
-PROTOCOL_DINO_MODE = {'full256': 'eval256', 'crop128': 'train128'}
+
+# Every protocol declares which DINO regime it runs in. The two IN-REGIME
+# protocols below both produce a full 256 prediction scored against the real 256
+# target, so their numbers are directly comparable with full256 -- which is the
+# whole point of them.
+#
+#   full256    whole 256 frame in one pass. Out of the training regime.
+#   crop128    one 128 crop, scored against a cropped target. In-regime, but
+#              NOT comparable to full256: different target.
+#   resize128  the whole frame downscaled to 128, predicted, upscaled back to
+#              256. In-regime, at the cost of half the resolution -- which is
+#              the high-frequency content this project exists to restore.
+#   tiled128   the frame cut into 128 tiles, each predicted at NATIVE
+#              resolution, stitched back to 256. In-regime AND full resolution;
+#              the cost is that each tile lacks its surrounding context.
+PROTOCOL_DINO_MODE = {'full256': 'eval256', 'crop128': 'train128',
+                      'resize128': 'train128', 'tiled128': 'train128'}
+TILE = 128
 
 
 def git_commit():
@@ -95,6 +112,41 @@ def shift_render(render, dx):
     return out
 
 
+def tile_positions(size, tile, overlap):
+    """Top-left coordinates covering `size` with `tile` windows.
+
+    The last position is clamped to the edge, so the frame is always fully
+    covered even when the stride does not divide it evenly.
+    """
+    if tile > size:
+        raise SystemExit(f'tile {tile} larger than image {size}')
+    stride = tile - overlap
+    if stride <= 0:
+        raise SystemExit(f'overlap {overlap} must be smaller than tile {tile}')
+    pos = list(range(0, size - tile + 1, stride))
+    if pos[-1] != size - tile:
+        pos.append(size - tile)
+    return pos
+
+
+def blend_window(tile, overlap):
+    """Separable weight window: a linear ramp over `overlap` pixels at each
+    edge, flat in the middle.
+
+    With overlap 0 this is all ones and tiles are pasted with hard seams -- kept
+    deliberately available, because the seam is the thing being measured. With
+    overlap > 0 the ramp down-weights tile BORDERS, which is exactly where the
+    Phase-5 crop analysis found DINO's features drift most, so this is not only
+    a cosmetic blend.
+    """
+    w = np.ones(tile, dtype=np.float32)
+    if overlap > 0:
+        ramp = (np.arange(overlap, dtype=np.float32) + 1.) / (overlap + 1.)
+        w[:overlap] = ramp
+        w[-overlap:] = ramp[::-1]
+    return np.outer(w, w)
+
+
 def read_manifest(path):
     rows = {}
     with open(path) as f:
@@ -120,7 +172,13 @@ def main():
     ap.add_argument('--config', required=True, help='the experiment YAML')
     ap.add_argument('--weights', required=True)
     ap.add_argument('--split', required=True, choices=['val', 'test'])
-    ap.add_argument('--protocol', required=True, choices=['full256', 'crop128'])
+    ap.add_argument('--protocol', required=True,
+                    choices=['full256', 'crop128', 'resize128', 'tiled128'])
+    ap.add_argument('--tile-overlap', type=int, default=0,
+                    help='tiled128 only: pixels of overlap between adjacent '
+                         'tiles. 0 = hard seams. Overlapping tiles are blended '
+                         'with a linear ramp, which also down-weights tile '
+                         'borders -- where Phase 5 found the DINO drift.')
     ap.add_argument('--manifest', default=None, help='required for crop128')
     ap.add_argument('--out-root', required=True,
                     help='results/<experiment>/predictions')
@@ -152,6 +210,10 @@ def main():
     # (Dataset_PairedImage_uint16_RenderStacked). Detected from the config, so a
     # new subclass cannot quietly fall through to the single-channel path.
     needs_render = cfg['network_g'].get('dino_source') == 'render'
+    if args.tile_overlap and args.protocol != 'tiled128':
+        raise SystemExit(f'--tile-overlap is meaningless under '
+                         f'{args.protocol}. Refusing to accept an argument '
+                         f'that would be silently ignored.')
     if args.render_shift and not needs_render:
         raise SystemExit(f'--render-shift {args.render_shift} given, but '
                          f'{arch_type} has no render stream to displace. '
@@ -239,20 +301,59 @@ def main():
                 cv2.imwrite(os.path.join(gt_out, f'{image_id}.png'), gt)
                 cv2.imwrite(os.path.join(in_out, f'{image_id}.png'), lq)
 
-            inp = torch.from_numpy(
-                lq.astype(np.float32) / 65535.)[None, None].to(args.device)
-            if render is not None:
-                inp = torch.cat(
-                    [inp, torch.from_numpy(render)[None, None].to(args.device)],
-                    dim=1)                            # [1,2,H,W] radar, render
-            out = net(inp)
-            pred = (out.clamp(0, 1)[0, 0].float().cpu().numpy() * 65535.
-                    ).round().astype(np.uint16)
+            lq_f = lq.astype(np.float32) / 65535.
+
+            def forward(radar, rend):
+                """One forward pass. radar/rend are float32 HxW in [0,1]."""
+                t = torch.from_numpy(np.ascontiguousarray(radar))
+                t = t[None, None].to(args.device)
+                if rend is not None:
+                    r = torch.from_numpy(np.ascontiguousarray(rend))
+                    t = torch.cat([t, r[None, None].to(args.device)], dim=1)
+                shapes.update({'input': list(t.shape)})
+                o = net(t)
+                shapes.update({'output': list(o.shape)})
+                return o.clamp(0, 1)[0, 0].float().cpu().numpy()
+
+            if args.protocol == 'resize128':
+                # DOWN then UP. INTER_AREA is the correct downsampler; the
+                # upsample cannot restore what the downsample removed, and that
+                # loss is the honest cost of running in-regime this way.
+                h, w = lq_f.shape
+                small = cv2.resize(lq_f, (TILE, TILE),
+                                   interpolation=cv2.INTER_AREA)
+                rsmall = (None if render is None else
+                          cv2.resize(render, (TILE, TILE),
+                                     interpolation=cv2.INTER_AREA))
+                pred_f = cv2.resize(forward(small, rsmall), (w, h),
+                                    interpolation=cv2.INTER_CUBIC)
+
+            elif args.protocol == 'tiled128':
+                # Each tile is predicted at NATIVE resolution and in-regime.
+                h, w = lq_f.shape
+                acc = np.zeros((h, w), np.float32)
+                wsum = np.zeros((h, w), np.float32)
+                win = blend_window(TILE, args.tile_overlap)
+                for y in tile_positions(h, TILE, args.tile_overlap):
+                    for x in tile_positions(w, TILE, args.tile_overlap):
+                        rt = (None if render is None
+                              else render[y:y + TILE, x:x + TILE])
+                        p = forward(lq_f[y:y + TILE, x:x + TILE], rt)
+                        acc[y:y + TILE, x:x + TILE] += p * win
+                        wsum[y:y + TILE, x:x + TILE] += win
+                if wsum.min() <= 0:
+                    raise SystemExit(f'{image_id}: tiling left {int((wsum<=0).sum())} '
+                                     f'pixels uncovered -- refusing to divide')
+                pred_f = acc / wsum
+
+            else:
+                pred_f = forward(lq_f, render)
+
+            pred = (pred_f * 65535.).round().astype(np.uint16)
             if pred.shape != gt.shape:
                 raise SystemExit(f'{image_id}: prediction {pred.shape} != '
                                  f'target {gt.shape} -- alignment broken')
             cv2.imwrite(os.path.join(raw_dir, f'{image_id}.png'), pred)
-            shapes = {'input': list(inp.shape), 'output': list(out.shape)}
             if n % 50 == 0 or n == len(ids):
                 print(f'    {n}/{len(ids)}', flush=True)
 
@@ -262,6 +363,8 @@ def main():
         'split': args.split, 'protocol': args.protocol,
         'n_images': len(ids),
         'render_shift_px': args.render_shift,
+        'tile_overlap': args.tile_overlap if args.protocol == 'tiled128'
+        else None,
         'manifest': os.path.abspath(args.manifest) if args.manifest else None,
         'dino': ({'mode': net.dino_mode,
                   'block_1indexed': net.dino_block_1indexed,
