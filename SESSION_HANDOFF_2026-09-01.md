@@ -137,7 +137,7 @@ significantly worse inside a crop, at every depth, worst at the deepest.
 layer mean, so the true shift is LARGER than raw numbers suggest, and the
 regime-specific centring does NOT compensate for it.
 
-### 5b/5c — six visualisations (`visualize_crop_drift.py`)
+### 5b/5c — six visualisations (`visualize_crop_drift.py`, `tsne_crop_context.py`)
 
   fig10_replica_dsgir_layers.png / _our_layers.png   DSGIR Fig. 10 replica
   fig12_replica_kde.png                              DSGIR Fig. 12 replica
@@ -145,16 +145,12 @@ regime-specific centring does NOT compensate for it.
   tsne_context.png                                   t-SNE + separability
   pca_maps_full_vs_crop.png                          joint-PCA, full vs crop
 
-  **FOUR ORPHANED FIGURES.** `tsne_{patch,image}_{raw,centred}.png` and
-  `tsne_separability.json` were produced by job 1799766 from a script
-  (`tsne_crop_context.py`) that did NOT survive a session interrupt and is NOT
-  on disk. Their numbers (image-level context separability 0.97-1.00,
-  patch-level 0.78-0.99, B6 lowest at 0.849) are recorded in DEVLOG Step 34 and
-  are consistent with `tsne_context.png`, which IS reproducible from the
-  committed script. **Either regenerate that script or drop those four figures
-  -- do not put an unreproducible figure in the thesis.** Nothing depends on
-  them: `visualize_crop_drift.py` produces a t-SNE with the same separability
-  measurement.
+  `tsne_{patch,image}_{raw,centred}.png` + `tsne_separability.json` come from
+  `tsne_crop_context.py`. That script was lost to a session interrupt on 09-01
+  and was REGENERATED on 09-02 (job 1800304); the rewrite reproduces the
+  original numbers exactly (patch_raw B3 0.990 / B6 0.849 / B9 0.929 / B12
+  0.923; image_raw all 1.000), so the figures are reproducible again and all
+  three scripts are tracked.
 
 **Fig-10 replica, render~clean cosine by crop ratio:**
 
@@ -241,9 +237,10 @@ ETB = PGCA + GDFN.
 
 Ranked, if there is appetite:
 
-1. **Write the Phase-5 findings into DEVLOG and PHASE3_CHAPTER.** The Phase-5
-   results currently exist only in `results/` — WHICH IS GITIGNORED. This is the
-   most at-risk work in the repo right now.
+1. **Move `results/INTERPRETATION.md` somewhere tracked.** It explains every
+   Phase-5 figure in plain language — what it means, why that figure, how it was
+   made — and it currently sits in the GITIGNORED results folder. The numbers
+   themselves are safe in DEVLOG Step 34; the explanations are not.
 2. **A render-misalignment ablation.** Inference only, minutes. Shift the render
    by k pixels for k = 0,1,2,4,8,16 and measure degradation. Converts the binary
    shuffle control (−9.094 dB) into a dose-response curve, and answers the
@@ -300,6 +297,7 @@ Tracked in git:
   DEVLOG.md               Step 33 appended
   SESSION_HANDOFF_2026-09-01.md   this file
   dino_analysis_phases/phase5_crop_context/analyze_crop_context_shift.py
+  dino_analysis_phases/phase5_crop_context/tsne_crop_context.py
   dino_analysis_phases/phase5_crop_context/visualize_crop_drift.py
   basicsr/models/archs/dino_aca_nosa.py
   basicsr/models/archs/restormer_aca_l6_nosa_render_arch.py
