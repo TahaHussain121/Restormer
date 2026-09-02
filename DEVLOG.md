@@ -1631,3 +1631,120 @@ evaluated arms. Report it that way; do not claim a single clean read.
     aca-L6 null on both.
   - `HANDOVER.md` line 97 still lists global-render as *in flight* 90k/300k. It
     is DONE at 300k and evaluated. Line 167 is correct; line 97 is stale.
+
+---
+
+## Step 34 — Phase 5: DINO does not see a crop the way it sees the full frame (2026-09-01)
+
+Phase 3 trains on 128 crops (DINO at 224 -> 16x16 tokens) and evaluates on full
+256 frames (DINO at 448 -> 32x32). Every arm therefore gets a prior computed in
+one context and used in another. Step 33's Finding 7 (every attention arm loses
+on crop128) recorded its mechanism as INTERPRETATION, not result. This step
+measures the untested half: does the PRIOR ITSELF differ between the regimes?
+
+**It does, substantially.** Scripts in `dino_analysis_phases/phase5_crop_context/`.
+Figures and JSON are in its `results/` dir, WHICH IS GITIGNORED -- the numbers
+below are the record.
+
+### The interaction DSGIR predicts, confirmed (n=339, render vs clean)
+
+`deg_crop - deg_full`: how much worse degraded-vs-clean agreement is inside a
+crop than inside a full frame.
+
+| layer | mean delta | 95% CI | wilcoxon p | worse in crop |
+|---|---|---|---|---|
+| B3 | -0.0192 | [-0.0201,-0.0184] | 2.8e-57 | 337/339 |
+| **B6** | **-0.0020** | [-0.0032,-0.0008] | 3.3e-04 | **193/339** |
+| B9 | -0.0180 | [-0.0204,-0.0156] | 6.8e-33 | 269/339 |
+| B12 | -0.0284 | [-0.0345,-0.0223] | 1.0e-15 | 225/339 |
+
+Negative and significant at every depth, largest at the deepest -- matching
+DSGIR's "particularly pronounced at deep semantic levels".
+
+### DSGIR Fig-10 replica: cosine by crop ratio (all ratios resized to 224)
+
+| layer | Full | 0.8 | 0.5 | 0.2 |
+|---|---|---|---|---|
+| B1 | 0.9556 | 0.9204 | 0.9031 | 0.9561 |
+| B4 | 0.9004 | 0.8187 | 0.7856 | 0.8984 |
+| B8 | 0.8254 | 0.7625 | 0.7269 | 0.8182 |
+| B12 | 0.5512 | 0.4899 | 0.4085 | 0.5151 |
+
+Monotonic decline Full -> 0.8 -> 0.5 at EVERY layer, and the gap widens with
+depth: Full-minus-0.5 is 0.053 at B1 and **0.143 at B12**.
+
+  **THE 0.2 RATIO REVERSES, AND MUST BE EXPLAINED RATHER THAN DROPPED.** 0.2 of
+  a 256 frame is 51 px upsampled 4.4x to 224, which smooths the degradation away
+  so both images look alike. A small-source-image artifact, not a contradiction.
+  Report the 1.0-0.5 range -- which is the range training actually uses -- and
+  state the artifact.
+
+### The aligned measurement, on this project's REAL pipeline
+
+full 448 (32x32) vs 128 crop 224 (16x16), token-aligned because 256/32 = 8 px
+per token.
+
+| layer | position cosine | border - centre | NN top-1 |
+|---|---|---|---|
+| B1 | 0.7987 | -0.0639 | 0.123 |
+| B3 | 0.7591 | -0.0549 | 0.106 |
+| B6 | 0.7081 | -0.0578 | 0.111 |
+| B9 | 0.6568 | -0.1373 | 0.114 |
+| B12 | 0.6721 | -0.1261 | 0.156 |
+
+  * **BORDER MINUS CENTRE IS NEGATIVE AT EVERY LAYER.** The drift concentrates
+    at the crop BORDERS. DSGIR asserts "absence of global contextual support";
+    this MEASURES it, spatially. **Goes beyond their paper.**
+  * **NN position retrieval 0.045-0.156** against chance 1/1024 = 0.001. About
+    100x chance, yet 85-95% of crop tokens still cannot identify their own
+    position in the full frame.
+  * **Context separability**: a logistic regression on the raw 768-d features
+    tells crop from full at **0.97-1.00 image-level**, 0.78-0.99 patch-level,
+    and it SURVIVES centring.
+  * Raw crop-vs-full cosine is 0.66-0.76 but falls to **0.48-0.55 once the layer
+    mean is removed**. Raw cosine is inflated by the shared mean, so the true
+    shift is LARGER than it looks, and the arms' regime-specific centring does
+    NOT compensate.
+
+### B6 IS THE MOST CROP-ROBUST DEPTH — three independent measurements
+
+  1. the interaction is -0.0020, against -0.018 to -0.028 at every other depth
+  2. context separability is 0.859, the LOWEST of the seven layers measured
+  3. Phase 1/2 selected B6 for an unrelated reason (cross-source consistency)
+
+**This independently vindicates the Phase-1/2 layer choice**, and it pairs with
+the AFFM weights, where B6 carries the tightest weight of the four.
+
+### What this settles, and what it does NOT
+
+It establishes that the PRIOR ITSELF differs between regimes -- previously
+untested. **It does NOT fully explain Finding 7 on its own**: every arm receives
+the same shifted prior, including the additive arms that show no protocol split.
+It makes the existing mechanism more grounded (attention pools statistics across
+the grid, so a context-shifted prior plausibly perturbs it more than a plain
+addition) but does not replace it.
+
+### DSGIR, now READ rather than second-hand
+
+Deng, Tian, Zhao, Liu, Neurocomputing 696 (2026) 134106. Corrections to what the
+repo previously assumed:
+
+  * **Fig. 8 is NOT the crop analysis** -- it is t-SNE of degradation-TYPE
+    representations from their DSE module. Fig. 10 is the crop analysis; Fig. 12
+    is the KDE of similarity distributions.
+  * CSA adapts DINOv2 layers {9,10,11,12} with a **zero-initialised residual
+    projection** -- the same device this project uses at `P`.
+  * CSA trains with **hybrid preprocessing**: each iteration is, with equal
+    probability, a full image resized to 224 OR a random 224 crop. That is how
+    they make DINO robust to both regimes -- a cheap idea this project could
+    adopt without changing any architecture.
+  * Content priors are injected **hierarchically**: z^(12) at the latent stage,
+    z^(8)/z^(4)/z^(1) into successive DECODER stages.
+  * **Their content prior is a GLOBAL VECTOR** (SGFM emits channel-wise affine
+    gamma/beta broadcast spatially), exactly like Perceive-IR's 1x768.
+
+**BOTH reference methods buy multi-level decoder injection by giving up SPATIAL
+structure, and on this data a global prior is 1.284 dB BELOW the no-DINO
+baseline (global-render).** That is the architectural trade-off to state, and it
+is why this project's design diverges from theirs rather than looking like an
+oversight.
