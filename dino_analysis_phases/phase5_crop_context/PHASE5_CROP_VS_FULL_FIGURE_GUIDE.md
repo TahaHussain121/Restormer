@@ -1,4 +1,7 @@
-# What every Phase-5 figure means, in plain words
+# Phase 5 — guide to the crop-versus-full figures
+
+*What each figure means, why that particular figure exists, and how it was
+made. Written for a reader who does not want technical language.*
 
 Written 2026-09-02.
 

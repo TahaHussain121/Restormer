@@ -292,9 +292,13 @@ Tracked in git:
   PROSE_ARGUMENTS.md      copy-pasteable paragraphs, two parts
   DEVLOG.md               Step 33 appended
   SESSION_HANDOFF_2026-09-01.md   this file
-  dino_analysis_phases/phase5_crop_context/INTERPRETATION.md   plain-English
-      walkthrough of every Phase-5 figure: what it means, why that figure, how
-      it was made. Moved OUT of the gitignored results/ folder so it survives.
+  dino_analysis_phases/phase5_crop_context/PHASE5_CROP_VS_FULL_FIGURE_GUIDE.md
+      Plain-English guide to every Phase-5 figure: what it shows, why that
+      figure exists, how it was produced. Also answers the questions that come
+      BEFORE the figures — why we inspect DINO's features rather than the
+      images, why layer depth is a variable, and why a cosine is meaningless
+      without its floor. Deliberately kept OUT of the gitignored results/
+      folder so a clean checkout keeps the reasoning.
   dino_analysis_phases/phase5_crop_context/analyze_crop_context_shift.py
   dino_analysis_phases/phase5_crop_context/tsne_crop_context.py
   dino_analysis_phases/phase5_crop_context/visualize_crop_drift.py
