@@ -1519,6 +1519,12 @@ iteration is a multiple of 4000.
 | dinolight-render | 272,000 | 24.3411 | 0.0369 |
 | affm-render | 224,000 | 24.4020 | 0.0525 |
 
+**This table covers only the six arms selected in THIS step.** The other five
+evaluated arms were selected earlier and their iterations are scattered across
+Steps 30-32; `concat-render`'s was never written down anywhere. The complete
+list, recovered and re-verified in Step 35, is in that step. Use it, not this
+table, when a full-study figure is needed.
+
 ### THE TEST RESULT — n=338, uint16, jobs 1799708-1799717
 
 | arm | dep | full256 | vs E0 | crop128 | vs E0 | psnr_mask | ssim |
@@ -1748,3 +1754,125 @@ structure, and on this data a global prior is 1.284 dB BELOW the no-DINO
 baseline (global-render).** That is the architectural trade-off to state, and it
 is why this project's design diverges from theirs rather than looking like an
 oversight.
+
+---
+
+## Step 35 — Checkpoint provenance audit; Phase 5 folded into the chapter; the misalignment control (2026-09-02)
+
+Three separable things. **(a)** A full audit of which checkpoint every arm was
+evaluated at, because the record was scattered and one arm's was missing
+entirely. **(b)** The Phase-5 crop measurement written into `PHASE3_CHAPTER.md`,
+where it had never appeared. **(c)** A render-misalignment dose-response control,
+built and verified.
+
+### (a) CHECKPOINT PROVENANCE — the complete list, verified three ways
+
+The selected iterations were spread across Steps 30, 31, 32 and 33 and no single
+place held them all. Recovered and cross-checked by three independent routes:
+the checkpoint files on disk, the `weights` field of every
+`predict_metadata.json`, and a fresh parse of the training logs for the
+best-validation point. **All three agree for all eleven evaluated arms.**
+
+| arm | selected iter | val PSNR (8-bit) | ckpts on disk | recorded in DEVLOG before this step |
+|---|---|---|---|---|
+| E0-fixed | 268,000 | 22.0749 | 151 | Step 30a |
+| E1-addition-noisy | 128,000 | 21.4678 | 151 | Step 30a |
+| addition-render | 204,000 | 24.1171 | 151 | Step 30a / 33 |
+| **concat-render** | **292,000** | **24.1417** | 151 | **NOWHERE — recovered here** |
+| global-render | 60,000 | 20.5911 | 151 | Step 30e (as an in-flight figure) |
+| aca-L6 | 236,000 | 24.1921 | 151 | Step 33 |
+| aca-L36 | 296,000 | 24.2355 | 151 | Step 33 |
+| aca-L6912 | 224,000 | 24.2192 | 151 | Step 33 |
+| dinolight-render | 272,000 | 24.3411 | 151 | Step 32a / 33 |
+| affm-render | 224,000 | 24.4020 | 151 | Step 32a / 33 |
+| crossattn-render | 4,000 | 18.5674 | 89 (stopped 178k) | Step 33 — EXCLUDED from the narrative |
+| priorquery-render | none | — | 45 (stopped 90k) | never evaluated |
+
+**Every arm used the SAME checkpoint for all four evaluation cells**
+(full256/crop128 x val/test), confirmed from the metadata. No cell is quietly
+running a different model.
+
+Two things this audit surfaced:
+
+  * **`concat-render` at 292,000 (val 24.1417) was never written down.** Step 33's
+    selection table covers only the six arms selected in that step, and concat
+    was selected automatically much earlier by its deferred dispatcher, so it
+    fell through every record. The number is now here. Note the coincidence trap:
+    the OLD verynoisy baseline of Step 19 also peaked at 292k, at 22.4460 — a
+    different arm and a different value. Do not conflate them.
+  * **`global-render` peaked at 60,000 of 300,000** and never beat it — one fifth
+    of the way through. That is the same early-peak-then-decline shape
+    `E1-noisy` shows at 128k, and these are precisely the two arms that land
+    BELOW baseline. Consistent with Step 30c's reading of a prior the network
+    later has to work around. Observed, not investigated.
+
+### (b) PHASE 5 WRITTEN INTO THE CHAPTER
+
+Step 34's measurement existed only in this devlog. `PHASE3_CHAPTER.md` still
+described the crop128 mechanism as interpretation at section 7.3, and a grep for
+"phase 5" across the chapter and `PROSE_ARGUMENTS.md` returned nothing.
+
+New **section 7.4, "The prior under cropping — a direct measurement"**, placed
+immediately after the protocol-split finding it supports: the interaction table,
+the Fig-10 crop-ratio replica with the 0.2 artifact stated rather than dropped,
+the spatial border-minus-centre result, NN position retrieval, context
+separability, the centring caveat, and the three-way B6 vindication. Old 7.4
+became 7.5.
+
+**The honest limit is written INTO the section, not left to a reader:** every arm
+receives the same shifted prior, including the additive arms that show no
+protocol split, so this grounds 7.3's mechanism without closing it.
+
+Also: section 5.3 now points forward to it; section 9 gains the regime-mismatch
+limitation (measured, not corrected — DSGIR's hybrid preprocessing is the
+obvious remedy and was not applied); section 10 gains a closing paragraph.
+
+**Section 11 was restructured, and this was overdue.** It listed *seed
+replication* as priority #2 and the *F_sa ablation* as #3 — both decisions
+already taken and recorded in section 9 and section 6.11 of the same document.
+As written the chapter recommended, in its final section, work it had already
+explained why it would not do. Now split into **11.1 Open** (parameter-matched
+control, a middle point on the additive depth curve, DSGIR-style hybrid
+crop/full preprocessing, the co-inflation gate) and **11.2 Considered and
+declined, with the reason**. Same facts, and they now read as decisions.
+
+### (c) THE RENDER-MISALIGNMENT CONTROL — built and verified
+
+**Why.** Render specificity currently rests on ONE binary point: shuffle the
+renders between images and the arm loses 9.094 dB (job 1776802, validation,
+n=339). That is a cliff with nothing on it. It shows a completely wrong render is
+catastrophic; it says nothing about how accurately the render must be registered,
+which is the first question a reader asks of a guided method.
+
+`predict_phase3.py` gains `--render-shift K`, default 0, single code path.
+Displaces the render K pixels along x before it reaches DINO. Design choices,
+each deliberate:
+
+  * **Zero fill, never `np.roll`.** Wrapping would reintroduce object structure
+    on the opposite edge and understate the damage. The renders sit on a black
+    background, so zero is also the physically correct fill.
+  * **Displaced BEFORE the crop**, so crop128 sees the same misalignment
+    full256 does.
+  * **Only the DINO input moves.** Radar, target and crop window are untouched,
+    so the single factor is render-to-radar registration.
+  * Refuses to run on a non-render arm rather than silently doing nothing.
+  * `render_shift_px` is written into `predict_metadata.json`.
+
+**Verification before spending GPU time** (job 1800934, 36 s, 6 images):
+
+    shift 0 identical to the arm's RECORDED predictions   6/6   (bit-exact)
+    shift 8 differs from shift 0                          6/6
+
+The first check is the load-bearing one: it proves this is the same computation
+the arm's own evaluation ran, not a re-implementation that lands nearby. A unit
+test on the shift function itself covers zero-fill, absence of wrap, and
+shape/dtype preservation.
+
+**Configuration.** addition-render at its selected checkpoint (204,000), because
+that is the arm the 9.094 dB shuffle control was measured on, so the endpoint and
+the dose-response sit on the same model. **Validation split, n=339** — this
+control was not pre-registered, so it does not touch the locked test split, and
+validation is what the shuffle control used. Both protocols. k = 0, 1, 2, 4, 8,
+16, with k=0 included as the self-check described above.
+
+Sweep submitted as job 1801014.
