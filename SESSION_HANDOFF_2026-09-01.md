@@ -237,14 +237,10 @@ ETB = PGCA + GDFN.
 
 Ranked, if there is appetite:
 
-1. **Move `results/INTERPRETATION.md` somewhere tracked.** It explains every
-   Phase-5 figure in plain language — what it means, why that figure, how it was
-   made — and it currently sits in the GITIGNORED results folder. The numbers
-   themselves are safe in DEVLOG Step 34; the explanations are not.
-2. **A render-misalignment ablation.** Inference only, minutes. Shift the render
-   by k pixels for k = 0,1,2,4,8,16 and measure degradation. Converts the binary
-   shuffle control (−9.094 dB) into a dose-response curve, and answers the
-   fragility question any reader will ask.
+1. **A render-misalignment ablation.** Inference only, minutes. See item 2.
+2. **(details)** Shift the render by k pixels for k = 0,1,2,4,8,16 and measure
+   the degradation. Converts the binary shuffle control (−9.094 dB) into a
+   dose-response curve, and answers the fragility question any reader will ask.
 3. **Read DINO-IR** (Lin et al., arXiv 2312.01677) — directly adjacent, cited by
    DSGIR as [36], and **still absent from this repo**. Do not characterise it
    second-hand.
@@ -296,6 +292,9 @@ Tracked in git:
   PROSE_ARGUMENTS.md      copy-pasteable paragraphs, two parts
   DEVLOG.md               Step 33 appended
   SESSION_HANDOFF_2026-09-01.md   this file
+  dino_analysis_phases/phase5_crop_context/INTERPRETATION.md   plain-English
+      walkthrough of every Phase-5 figure: what it means, why that figure, how
+      it was made. Moved OUT of the gitignored results/ folder so it survives.
   dino_analysis_phases/phase5_crop_context/analyze_crop_context_shift.py
   dino_analysis_phases/phase5_crop_context/tsne_crop_context.py
   dino_analysis_phases/phase5_crop_context/visualize_crop_drift.py
