@@ -137,13 +137,24 @@ significantly worse inside a crop, at every depth, worst at the deepest.
 layer mean, so the true shift is LARGER than raw numbers suggest, and the
 regime-specific centring does NOT compensate for it.
 
-### 5b/5c — six visualisations (`visualize_crop_drift.py`, `tsne_crop_context.py`)
+### 5b/5c — six visualisations (`visualize_crop_drift.py`)
 
   fig10_replica_dsgir_layers.png / _our_layers.png   DSGIR Fig. 10 replica
   fig12_replica_kde.png                              DSGIR Fig. 12 replica
   spatial_drift_heatmap.png                          WHERE the drift happens
-  tsne_context.png, tsne_{patch,image}_{raw,centred}.png
-  pca_maps_full_vs_crop.png
+  tsne_context.png                                   t-SNE + separability
+  pca_maps_full_vs_crop.png                          joint-PCA, full vs crop
+
+  **FOUR ORPHANED FIGURES.** `tsne_{patch,image}_{raw,centred}.png` and
+  `tsne_separability.json` were produced by job 1799766 from a script
+  (`tsne_crop_context.py`) that did NOT survive a session interrupt and is NOT
+  on disk. Their numbers (image-level context separability 0.97-1.00,
+  patch-level 0.78-0.99, B6 lowest at 0.849) are recorded in DEVLOG Step 34 and
+  are consistent with `tsne_context.png`, which IS reproducible from the
+  committed script. **Either regenerate that script or drop those four figures
+  -- do not put an unreproducible figure in the thesis.** Nothing depends on
+  them: `visualize_crop_drift.py` produces a t-SNE with the same separability
+  measurement.
 
 **Fig-10 replica, render~clean cosine by crop ratio:**
 
@@ -289,7 +300,6 @@ Tracked in git:
   DEVLOG.md               Step 33 appended
   SESSION_HANDOFF_2026-09-01.md   this file
   dino_analysis_phases/phase5_crop_context/analyze_crop_context_shift.py
-  dino_analysis_phases/phase5_crop_context/tsne_crop_context.py
   dino_analysis_phases/phase5_crop_context/visualize_crop_drift.py
   basicsr/models/archs/dino_aca_nosa.py
   basicsr/models/archs/restormer_aca_l6_nosa_render_arch.py
