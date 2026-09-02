@@ -111,7 +111,7 @@ Replicated across splits: **+0.284 on validation (p=1.0e-09), +0.230 on test
 
 **NO. It extends it, and the learned weights support it.** Write this down,
 because the panic reflex is to think the multi-layer result makes the earlier
-depth study look like wasted work. It does not, for two independent reasons.
+depth study look like wasted work. It does not, for THREE independent reasons.
 
 **REASON 1 — the headline result IS the Phase-1/2 layer.** The best model this
 project has produced is `addition-render`: **24.081 on the LOCKED TEST SPLIT,
@@ -145,6 +145,19 @@ Two things to read off it, and one not to.
     windowed mean, state the window, and say nothing about a strict ordering
     among the two wandering depths.
 
+**REASON 3 — PHASE 5 VINDICATES B6 A THIRD TIME, ON A CRITERION NOBODY WAS
+OPTIMISING.** The crop-versus-full measurement (Step 34) ranks depths by how
+stably they describe a crop compared with the full frame. **B6 wins twice
+there:** its degradation-agreement interaction is −0.0020 against −0.018 to
+−0.028 at every other depth, and its context separability is 0.859, the LOWEST
+of the seven layers measured. Phase 1/2 chose B6 for cross-source consistency —
+a completely different criterion, measured before any of this existed.
+
+So B6 is now selected by three unrelated measurements: cross-source consistency
+(Phase 1/2), the tightest learned AFFM weight (Step 32d), and crop robustness
+(Step 34). **A choice that survives three criteria it was not tuned for is a
+much stronger claim than the original selection was.**
+
 **THE SENTENCE TO WRITE:**
 
 > Phase 1/2 identified B6 as the strongest single depth, and that choice powers
@@ -152,7 +165,8 @@ Two things to read off it, and one not to.
 > single depth is not SUFFICIENT: a learned per-position combination over
 > {3,6,9,12} adds a further +0.284 dB at +1% parameters, never discards any
 > depth, and independently places B6 in the stable core of the learned
-> weighting.
+> weighting. A later crop-context analysis, on a criterion unrelated to either,
+> finds B6 the most crop-robust depth of those measured.
 
 That is a progression — best-single, then best-combination — not a reversal.
 
@@ -229,6 +243,27 @@ that loses nowhere.**
 
 This is why the headline claim is about parameter efficiency and protocol
 robustness, NOT about a PSNR gap.
+
+### Q7a — WHY do the two protocols disagree? (Phase 5, Step 34)
+
+Finding 7's mechanism used to be interpretation. Half of it is now measured.
+
+The premise it rested on — that the PRIOR ITSELF is not the same object in the
+two protocols — had never been checked. It is now, and it is true:
+degradation agreement is significantly worse inside a crop at every depth, the
+drift concentrates at the crop BORDERS (border − centre negative at every
+layer), and centring does NOT compensate (raw cosine 0.66–0.76 falls to
+0.48–0.55 once the layer mean is removed, so the shift is LARGER than it looks).
+
+  **STATE THE LIMIT IN THE SAME BREATH.** This does NOT explain Finding 7 on its
+  own, and claiming it does is the easy overreach here. **Every arm receives the
+  same shifted prior, including the additive arms that show no protocol split at
+  all.** What Phase 5 buys is that the regime shift is real and large; the step
+  from there to "which operators are damaged by it" is still the interpretation
+  — attention pools statistics across the token axis and is therefore more
+  exposed to a context-dependent prior than a per-position addition is.
+
+Written up in `PHASE3_CHAPTER.md` §7.4.
 
 ## The ending — the sentence the whole study earns
 
