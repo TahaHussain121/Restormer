@@ -336,8 +336,15 @@ One honest finding about this gate is on record. When the spatial cross-attentio
 arm failed, its latent norm grew fifteen-fold and its projected norm fourteen-
 fold against the 5,000-iteration reference, **yet the ratio never left the range
 0.52–0.91** and the gate never fired. The gate constrains only the *ratio*, and
-co-inflation of both quantities passes it undetected. A co-inflation rule was
-identified as the fix and was never implemented.
+co-inflation of both quantities passes it undetected. A co-inflation rule —
+abort if either norm exceeds five times its own 5,000-iteration reference — was
+identified as the fix. Before it was adopted for the follow-up arms it was
+replayed against every finished arm's stability log, and it would have aborted
+all of them: every healthy arm, the best model included, grows its latent norm
+nine- to sixteen-fold over the run, peaking near iteration 190,000, and the
+cross-attention arm's fifteen-fold sits inside that range. Norm growth under this
+recipe is ordinary behaviour, not a failure signature, so the rule cannot
+discriminate and was not adopted (DEVLOG Step 37).
 
 ---
 
@@ -1188,10 +1195,14 @@ direction, with the prior as query and the feature as key and value, making DINO
 a router over radar positions rather than a content source — was stopped at
 90,000 iterations and never evaluated. It contributes nothing and is excluded.
 
-**An unimplemented monitoring fix.** The stability gate constrains only the
-injected-to-latent ratio and is blind to co-inflation of both quantities, as
-the failed cross-attention arm demonstrated. A co-inflation rule was specified
-and never implemented.
+**A monitoring blind spot that turned out not to be one.** The stability gate
+constrains only the injected-to-latent ratio and is blind to co-inflation of
+both quantities, as the failed cross-attention arm demonstrated. The proposed
+fix, a cap at five times each norm's own reference, was replayed on the finished
+arms and would have aborted every healthy one (latent growth 9–16×), so
+co-inflation on its own does not separate a failed run from a good one. The
+ratio rules remain the only automatic monitor; the cross-attention failure was
+caught by evaluation, not by the gate.
 
 ---
 
@@ -1292,12 +1303,14 @@ and the prior stream move to the new scale together.
 > benefit. The transferable idea is mixed-resolution training of *both* streams,
 > not hybrid preprocessing of the prior alone.
 
-**Implementing the co-inflation gate rule.** The stability monitor is blind to
-simultaneous growth of the latent and injected norms, which is exactly the
-failure mode the cross-attention arm exhibited. The rule was specified and never
-implemented; any future arm inherits the blind spot.
-
 ### 11.2 Considered and declined, with the reason
+
+**The co-inflation gate rule.** Specified as a cap at five times each norm's
+5,000-iteration reference, and measured against every finished arm before being
+enabled: all of them, addition-render included, exceed it (9–16× latent growth),
+and the cross-attention arm's growth is not an outlier among them. A rule that
+would abort the project's best model is not a monitor. Declined on that
+measurement, and section 9 records the consequence.
 
 **Seed replication.** Each arm was trained once, at a single seed, and this is a
 scope decision rather than an omission — single-run reporting is the norm in

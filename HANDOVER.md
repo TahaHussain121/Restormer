@@ -543,14 +543,16 @@ the reference persists across resume so a walltime kill cannot silently reset it
 chain scripts stop on `STABILITY_FAILURE.json` and set `CHAIN_ABORTED`. Records
 are archived per (rule, iteration, job) and never overwritten.
 
-### ⚠ Known gap: co-inflation is not gated
+### Co-inflation is not gated — and the proposed rule was measured and dropped
 
 Both norms grow together while the *ratio* stays flat — E1-noisy went from
 latent 215 / projected 872 at 1k to latent 2310 / projected 5237 at 41k. Rule 2
-watches the **ratio**, so it cannot see this. Proposed rule (**not
-implemented**, needs a decision): abort if `‖F_latent‖` or `‖P(D)‖` exceeds 5×
-its own 5k reference. Adding it changes an experiment definition, so it needs a
-new identity for any run it would apply to.
+watches the **ratio**, so it cannot see this. The proposed rule (abort if
+`‖F_latent‖` or `‖P(D)‖` exceeds 5× its own 5k reference) was replayed against
+every finished arm on 2026-09-03: **every healthy arm grows its latent norm
+9–16× over the run** (addition-render 9.1×, affm 9.7×, aca-L6 15.8×), so the
+rule would have aborted all of them and crossattn's ~15× is not an outlier.
+**Not adopted.** DEVLOG Step 37 has the table.
 
 ---
 
@@ -598,7 +600,9 @@ Commits on this repo take **no `Co-Authored-By` trailer**.
 | **crossattn at eval256** — point `attention_probe.py` at `net_g_178000` in the eval256 regime, read entropy/diag over the 1024x1024 matrix | **still the cheapest open item** | ~2 min |
 | **Checkpoint-selection rule** — is best-val-on-full256 right for arms trained at 128? PRE-REGISTERED, so changing it needs a written decision | decision needed | — |
 | **Crop-size feature drift study** | specified, never started; blocked on 3 decisions incl. that 0.6694/+0.1453 is the **1e5↔1e7** pair | 1 sbatch |
-| **B3 run**, **co-inflation gate rule**, **token-shuffle control**, **global arm on 1e5**, **E1-noisy's early peak** | not run / not implemented | — |
+| **B3 run**, **token-shuffle control**, **global arm on 1e5**, **E1-noisy's early peak** | not run / not implemented | — |
+| **co-inflation gate rule** | measured against the finished arms and DROPPED (Step 37) | — |
+| **affm {3,6} and {3,6,9}** (additive depth-curve middle points) | SUBMITTED 2026-09-03, jobs 1802091 / 1802092 | Step 37 |
 | ~~priorquery-render~~ | **DROPPED** 2026-08-23 at 90k | — |
 
 ### THE AUG 28 MAINTENANCE — NO LONGER A HARD DEADLINE

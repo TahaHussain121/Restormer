@@ -1986,3 +1986,104 @@ provenance), and the stale `RUNNING_JOB` locks for crossattn and priorquery.
 
 Manifest committed at `dino_analysis_phases/phase3_restoration/KEPT_CHECKPOINTS.json`,
 NOT left in `experiments/`, which is gitignored.
+
+## Step 37 — Wave 1 of the follow-up arms: the additive depth-curve middle points (2026-09-03)
+
+Two new arms submitted, both **config-only** changes of the finished
+affm-render {3,6,9,12} arm. Also: a code review of the whole pipeline, a
+tracked paired-test script, and a measurement that retires the co-inflation
+gate proposal.
+
+### (a) The two arms
+
+The additive operator carries the depth finding (+0.230 test full256, p=4.3e-07)
+but had only the endpoints {6} and {3,6,9,12}. The new arms are the nested
+middle points, so the four arms trace one curve with one factor moving:
+
+| arm | experiment | layers | params over E0 | job |
+|---|---|---|---|---|
+| affm-L36 | `Holo_affm_render_fixed128_spatial_L36_latent` | {3,6} | +296,834 | **1802091** |
+| affm-L369 | `Holo_affm_render_fixed128_spatial_L369_latent` | {3,6,9} | +297,603 | **1802092** |
+
+Each config differs from `affm_render_fixed128_spatial_L3691_latent.yml` in
+three places only: the name, `dino_layers`, and the per-layer mean maps
+(unused layers removed). Same class, recipe, seed, gate, injection. Chain
+scripts `chain_affm_render_L36.sh` / `_L369.sh` are the affm chain script with
+the identity substituted; a100, two chained 24 h jobs expected.
+
+Pre-registered predictions are in each arm's devlog: {3,6} expected at
++0.05..+0.20 vs addition-render; {3,6,9} at +0.15..+0.25, close to the
+four-depth arm because B12 carried the smallest learned weight.
+
+**Smoke:** `smoke_tests_affm_subset.py` (new, reads the layer set from the
+config) — **34/34 passed for both arms**, CPU: parameter delta exact, trunk
+byte-identical to E0, step-0 output identical to E0 (max dev 0.0), softmax
+exactly uniform at 1/L, one-step gradient staircase clears at step 2, eval256
+path 448 -> 32x32 with no interpolation. No 6k GPU integration run: only the
+length of one list changed against an arm that ran 300k iterations through the
+same code.
+
+Both jobs were PD (Priority) at submission: every a100 node carried a
+"Reboot ASAP" drain flag from 14:10 that day.
+
+### (b) THE CO-INFLATION GATE — measured against the finished arms, and dropped
+
+HANDOVER §5 and chapter §9/§11.1 list an unimplemented rule: abort if
+`latent_norm` or `projected_norm` exceeds 5x its own 5k reference, because the
+crossattn arm inflated both ~15x while the ratio stayed flat. It was going to be
+added to the new arms. Replayed first against every finished arm's
+`dino_stability.csv`:
+
+| arm | latent growth vs 5k ref | projected growth |
+|---|---|---|
+| addition-render | 9.12x | 8.19x |
+| affm-render | 9.72x | 6.70x |
+| concat-render | 9.07x | 7.40x |
+| global-render | 9.99x | 6.11x |
+| E1-addition-noisy | 12.53x | 6.21x |
+| aca-L6 | 15.77x | 2.28x |
+| dinolight-render | 15.86x | 2.03x |
+
+**Every healthy arm, the best model included, grows its latent norm 9-16x over
+the run**, peaking around iteration 180k-200k. The 5x rule would have aborted
+all of them, and crossattn's ~15x sits inside the healthy range. Norm growth
+under this recipe is normal, not a failure signature; the rule cannot
+discriminate and is **not adopted**. The new arms keep the gate byte-identical
+to every other arm's. Chapter §9 and §11.1 and HANDOVER §5 updated to say so.
+
+### (c) Code review — no result-changing bug found
+
+Read end to end: the stacked dataset, the train.py sub-crop, both model
+wrappers, the base and AFFM/ACA/global archs, `predict_phase3.py`, checkpoint
+selection, the metric scripts, and the E0-vs-addition config diff.
+
+  * The stacked dataset draws crop and flip in the SAME RNG order as the stock
+    dataset (top, left, flag), so data order and augmentation are identical to
+    E0's for the same seed. The train.py sub-crop slices both channels together.
+    The config diff holds only the intended keys. EMA off, mixup off, clip
+    identical.
+  * Render loading is identical in training and prediction (BGR channel 0,
+    /255). Checkpoints are saved before validation at the same iteration, so the
+    selected checkpoint is the validated one.
+  * **8-bit selection vs 16-bit reporting: a non-issue, measured.** 67% of clean
+    pixels are below one 8-bit level, so this was a real worry. Recomputed on
+    every arm's saved full256 validation predictions: |PSNR8 - PSNR16| <= 0.003
+    dB for all eight arms, and the ranking is identical. One methods sentence.
+  * **The paired-test procedure was untracked.** No script in the repo computed
+    the Wilcoxon p-values in Steps 32-33. Recomputed from the tracked per-image
+    CSVs, they reproduce exactly (aca-L6 full256 test +0.030 p=0.224; affm
+    +0.230 p=4.30e-07; concat -0.016 p=0.978). The procedure is now
+    `scripts/paired_compare.py` (mean delta, 5000-resample bootstrap CI, Wilcoxon,
+    better-on count; writes `results/comparisons/paired/*.json`).
+  * Known and unchanged: cudnn benchmark mode (non-deterministic, equal for all
+    arms); the log-parse regex in `select_best_checkpoint.py` also matches
+    `total_iter:` in the startup dump, harmless because a training `iter:` line
+    always precedes the first validation, and Step 35 cross-checked selection
+    three ways.
+
+### Still open (waves 2 and 3, not started)
+
+Gated-render and gated-noisy (a per-position, per-channel gate on the
+projected prior; the light test of "the model decides"), post-latent injection,
+B3-alone and B9-alone, the offline crop-gap correction measurement, and the
+inference-only misalignment extensions.
