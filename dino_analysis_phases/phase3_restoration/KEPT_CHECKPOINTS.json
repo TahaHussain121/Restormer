@@ -1,0 +1,292 @@
+{
+  "Holo_E0_fixed128_baseline": {
+    "selected": [
+      268000
+    ],
+    "kept": [
+      {
+        "file": "net_g_268000.pth",
+        "tensors": 494,
+        "bytes": 104680336,
+        "md5": "a7d094b5e56bc13fc9660034a7bc0775"
+      },
+      {
+        "file": "net_g_300000.pth",
+        "tensors": 494,
+        "bytes": 104680336,
+        "md5": "3373aee592c6818c542fe51cb88aed9e"
+      },
+      {
+        "file": "net_g_latest.pth",
+        "tensors": 494,
+        "bytes": 104680336,
+        "md5": "9dd8e1619083df954c8affadb81e39cc"
+      }
+    ]
+  },
+  "Holo_E1_addition_noisy_fixed128_spatial_B6_latent": {
+    "selected": [
+      128000
+    ],
+    "kept": [
+      {
+        "file": "net_g_128000.pth",
+        "tensors": 498,
+        "bytes": 105840028,
+        "md5": "e4ba48897cea076422ffa5cd9e10e704"
+      },
+      {
+        "file": "net_g_300000.pth",
+        "tensors": 498,
+        "bytes": 105840028,
+        "md5": "a28ffe29a0b61d3d3aa1413389439b5f"
+      },
+      {
+        "file": "net_g_latest.pth",
+        "tensors": 498,
+        "bytes": 105840028,
+        "md5": "b2a4ea88d33fa94cd2b2d0a050ef1cef"
+      }
+    ]
+  },
+  "Holo_E1_addition_render_fixed128_spatial_B6_latent": {
+    "selected": [
+      204000
+    ],
+    "kept": [
+      {
+        "file": "net_g_204000.pth",
+        "tensors": 498,
+        "bytes": 105840028,
+        "md5": "0370d6c4c690e310f2b4fe4c4037039c"
+      },
+      {
+        "file": "net_g_300000.pth",
+        "tensors": 498,
+        "bytes": 105840028,
+        "md5": "3c5ad3737cefd425d0b931fa58e2f2d6"
+      },
+      {
+        "file": "net_g_latest.pth",
+        "tensors": 498,
+        "bytes": 105840028,
+        "md5": "86213b3cdeff16da6eb1024e41700423"
+      }
+    ]
+  },
+  "Holo_concat_render_fixed128_spatial_B6_latent": {
+    "selected": [
+      292000
+    ],
+    "kept": [
+      {
+        "file": "net_g_292000.pth",
+        "tensors": 498,
+        "bytes": 106429852,
+        "md5": "904165dbef59a718b0fe86f4ef7f2a10"
+      },
+      {
+        "file": "net_g_300000.pth",
+        "tensors": 498,
+        "bytes": 106429852,
+        "md5": "a1fc98d0ddd756fa689f18ca0a854215"
+      },
+      {
+        "file": "net_g_latest.pth",
+        "tensors": 498,
+        "bytes": 106429852,
+        "md5": "16b01129cdcde5d51bdd8d8db7122a2b"
+      }
+    ]
+  },
+  "Holo_global_addition_render_fixed128_B6_latent": {
+    "selected": [
+      60000
+    ],
+    "kept": [
+      {
+        "file": "net_g_60000.pth",
+        "tensors": 498,
+        "bytes": 105839526,
+        "md5": "ee4dd97b060f92f71bd1286f254d458e"
+      },
+      {
+        "file": "net_g_300000.pth",
+        "tensors": 498,
+        "bytes": 105840028,
+        "md5": "33aa6c8ec896f6f8a602e73680e6ca06"
+      },
+      {
+        "file": "net_g_latest.pth",
+        "tensors": 498,
+        "bytes": 105840028,
+        "md5": "46cfcd8daa5904733e9c729c8abe3346"
+      }
+    ]
+  },
+  "Holo_aca_render_fixed128_L6_latent": {
+    "selected": [
+      236000
+    ],
+    "kept": [
+      {
+        "file": "net_g_236000.pth",
+        "tensors": 518,
+        "bytes": 110064088,
+        "md5": "154ffcbe2dcd22ffc97276b6919beb1b"
+      },
+      {
+        "file": "net_g_300000.pth",
+        "tensors": 518,
+        "bytes": 110064088,
+        "md5": "5f133f7749dfe6d393e6b1ea93a99b5b"
+      },
+      {
+        "file": "net_g_latest.pth",
+        "tensors": 518,
+        "bytes": 110064088,
+        "md5": "96c9a928812992b1c94e9a7e6d114f97"
+      }
+    ]
+  },
+  "Holo_aca_render_fixed128_L36_latent": {
+    "selected": [
+      296000
+    ],
+    "kept": [
+      {
+        "file": "net_g_296000.pth",
+        "tensors": 526,
+        "bytes": 110084912,
+        "md5": "c3da451a57d9158ce96110d36859fe9d"
+      },
+      {
+        "file": "net_g_300000.pth",
+        "tensors": 526,
+        "bytes": 110084912,
+        "md5": "743156bec40e6283a09628bb6a2958b6"
+      },
+      {
+        "file": "net_g_latest.pth",
+        "tensors": 526,
+        "bytes": 110084912,
+        "md5": "58fcbab6fc7129fc2a5d4c8e9220cada"
+      }
+    ]
+  },
+  "Holo_aca_render_fixed128_L6912_latent": {
+    "selected": [
+      224000
+    ],
+    "kept": [
+      {
+        "file": "net_g_224000.pth",
+        "tensors": 530,
+        "bytes": 110095292,
+        "md5": "c6a966b59fbae05f5313ec92e2256950"
+      },
+      {
+        "file": "net_g_300000.pth",
+        "tensors": 530,
+        "bytes": 110095292,
+        "md5": "d7f4a867683e27d548f73d2f65ac9c29"
+      },
+      {
+        "file": "net_g_latest.pth",
+        "tensors": 530,
+        "bytes": 110095292,
+        "md5": "1ae25cac452b02c4adeadf0a437b3dd2"
+      }
+    ]
+  },
+  "Holo_dinolight_render_fixed128_L3691_aca_latent": {
+    "selected": [
+      272000
+    ],
+    "kept": [
+      {
+        "file": "net_g_272000.pth",
+        "tensors": 534,
+        "bytes": 110105736,
+        "md5": "f3b2fc2c1efbe221283216816374d1a7"
+      },
+      {
+        "file": "net_g_300000.pth",
+        "tensors": 534,
+        "bytes": 110105736,
+        "md5": "598039394ca28591f674532c769d49e5"
+      },
+      {
+        "file": "net_g_latest.pth",
+        "tensors": 534,
+        "bytes": 110105736,
+        "md5": "480371a1d7c79042b2c575ec1bcd39a8"
+      }
+    ]
+  },
+  "Holo_affm_render_fixed128_spatial_L3691_latent": {
+    "selected": [
+      224000
+    ],
+    "kept": [
+      {
+        "file": "net_g_224000.pth",
+        "tensors": 514,
+        "bytes": 105881676,
+        "md5": "42d6ec6b1a61ebfd64337a3e63aaf784"
+      },
+      {
+        "file": "net_g_300000.pth",
+        "tensors": 514,
+        "bytes": 105881676,
+        "md5": "f454af81d844d69e40cc521d0b81a983"
+      },
+      {
+        "file": "net_g_latest.pth",
+        "tensors": 514,
+        "bytes": 105881676,
+        "md5": "111b46ee3c7aa9c1c2626b6192b07b46"
+      }
+    ]
+  },
+  "Holo_crossattn_render_fixed128_spatial_B6_latent": {
+    "selected": [
+      4000,
+      176000,
+      178000
+    ],
+    "kept": [
+      {
+        "file": "net_g_4000.pth",
+        "tensors": 508,
+        "bytes": 108215098,
+        "md5": "ad00db581fa4a52dd7f6b41b8c6d2b64"
+      },
+      {
+        "file": "net_g_176000.pth",
+        "tensors": 508,
+        "bytes": 108216122,
+        "md5": "eefd9e75343d00fdd764412cafc289d5"
+      },
+      {
+        "file": "net_g_178000.pth",
+        "tensors": 508,
+        "bytes": 108216122,
+        "md5": "2c2df1cb86d701400214f834e5c9ee7c"
+      }
+    ]
+  },
+  "Holo_priorquery_render_fixed128_spatial_B6_latent": {
+    "selected": [
+      90000
+    ],
+    "kept": [
+      {
+        "file": "net_g_90000.pth",
+        "tensors": 508,
+        "bytes": 107625786,
+        "md5": "909043ffada4eb88038abfcb8debdb20"
+      }
+    ]
+  }
+}

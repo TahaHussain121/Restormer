@@ -129,7 +129,7 @@ def tile_positions(size, tile, overlap):
     return pos
 
 
-def blend_window(tile, overlap):
+def blend_window(tile, overlap, kind='ramp'):
     """Separable weight window: a linear ramp over `overlap` pixels at each
     edge, flat in the middle.
 
@@ -138,7 +138,17 @@ def blend_window(tile, overlap):
     overlap > 0 the ramp down-weights tile BORDERS, which is exactly where the
     Phase-5 crop analysis found DINO's features drift most, so this is not only
     a cosmetic blend.
+
+    `kind='box'` gives EQUAL weight to every pixel of every tile. It is the
+    control that separates two explanations of an overlap gain: averaging
+    several predictions per pixel (self-ensembling, which box also does) versus
+    down-weighting drifted tile borders (which only the ramp does). Box and ramp
+    at the same overlap average the SAME tiles; only the weighting differs.
     """
+    if kind == 'box':
+        return np.ones((tile, tile), dtype=np.float32)
+    if kind != 'ramp':
+        raise SystemExit(f'unknown window {kind!r}')
     w = np.ones(tile, dtype=np.float32)
     if overlap > 0:
         ramp = (np.arange(overlap, dtype=np.float32) + 1.) / (overlap + 1.)
@@ -174,6 +184,11 @@ def main():
     ap.add_argument('--split', required=True, choices=['val', 'test'])
     ap.add_argument('--protocol', required=True,
                     choices=['full256', 'crop128', 'resize128', 'tiled128'])
+    ap.add_argument('--tile-window', default='ramp', choices=['ramp', 'box'],
+                    help='tiled128 only: how overlapping tiles are weighted. '
+                         'ramp down-weights tile borders; box weights every '
+                         'pixel equally. Box is the control that separates '
+                         'border avoidance from plain self-ensembling.')
     ap.add_argument('--tile-overlap', type=int, default=0,
                     help='tiled128 only: pixels of overlap between adjacent '
                          'tiles. 0 = hard seams. Overlapping tiles are blended '
@@ -333,7 +348,7 @@ def main():
                 h, w = lq_f.shape
                 acc = np.zeros((h, w), np.float32)
                 wsum = np.zeros((h, w), np.float32)
-                win = blend_window(TILE, args.tile_overlap)
+                win = blend_window(TILE, args.tile_overlap, args.tile_window)
                 for y in tile_positions(h, TILE, args.tile_overlap):
                     for x in tile_positions(w, TILE, args.tile_overlap):
                         rt = (None if render is None
@@ -364,6 +379,8 @@ def main():
         'n_images': len(ids),
         'render_shift_px': args.render_shift,
         'tile_overlap': args.tile_overlap if args.protocol == 'tiled128'
+        else None,
+        'tile_window': args.tile_window if args.protocol == 'tiled128'
         else None,
         'manifest': os.path.abspath(args.manifest) if args.manifest else None,
         'dino': ({'mode': net.dino_mode,

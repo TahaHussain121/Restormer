@@ -1132,13 +1132,22 @@ whether the relationship is graded or a threshold. The equivalent ladder for the
 attention operator exists but is noisy and, given Finding 6, describes an
 operator that does not matter.
 
-**Hybrid crop/full preprocessing for the prior.** Section 7.4 establishes that
-DINO's description of a crop differs systematically from its description of the
-same region in the full frame, and that the drift concentrates at crop borders.
-DSGIR addresses exactly this by drawing each training iteration, with equal
-probability, from either a full image resized to 224 or a random 224 crop. That
-costs no architecture change and no parameters, and it is the natural response
-to the measurement now in hand. It was not tried here.
+**Training at the evaluation resolution.** Section 7.4 establishes that DINO's
+description of a crop differs systematically from its description of the same
+region in the full frame. The clean fix is to train where the model is
+evaluated, or to mix both resolutions during training, so that the radar stream
+and the prior stream move to the new scale together.
+
+> **DSGIR's hybrid preprocessing does not transfer directly, and the difference
+> matters.** They draw each iteration from either a full image resized to 224 or
+> a random 224 crop, and this is safe *for them* because their content prior is
+> pooled to a global vector — there is no spatial correspondence to break. This
+> project's prior is a token grid that must align with the latent grid position
+> by position. Feeding DINO a full frame while the backbone receives a 128 crop
+> would leave the prior describing one region and the latent another, and §7.6
+> measures that even a half-token misregistration erases the prior's entire
+> benefit. The transferable idea is mixed-resolution training of *both* streams,
+> not hybrid preprocessing of the prior alone.
 
 **Implementing the co-inflation gate rule.** The stability monitor is blind to
 simultaneous growth of the latent and injected norms, which is exactly the
