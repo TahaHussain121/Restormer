@@ -501,6 +501,28 @@ prior varies across space.
 
 **Test: 20.589 dB full256 (−1.284), 19.352 crop128 (−0.194).**
 
+Two later measurements say *why* it lands below the baseline, and they narrow
+what the arm can claim. First, the training curves: over the last 10,000
+iterations global-render's pixel loss is 0.0444 against E0's 0.0587, while its
+validation PSNR peaks at 60,000 iterations and falls 0.86 dB by the end. It fits
+the training set better and generalises worse — the arm overfits. Second, a
+feature-space check on all 6,101 training scenes (two independent random 128
+crops each, DEVLOG Step 38): the pooled B6 vector of a random crop retrieves its
+own scene top-1 17.7% of the time against a chance level of 0.016%, with the
+true scene at median rank 109. The broadcast vector is therefore not a unique
+scene key, but it carries enough scene-specific information for a network that
+sees each scene some four hundred times to overfit on, and it did.
+
+This also answers an objection the arm invites: it pools the block-6 patch
+tokens rather than using the last-layer CLS token that the reference methods
+pool. The same check finds the CLS token a *sharper* fingerprint, not a weaker
+one — top-1 39.5%, median rank 4 — so a CLS-broadcast arm would hand the
+network a better scene identifier, not a better prior. That arm was not run; the
+expectation, stated as a prediction and not a result, is that it overfits at
+least as much. The claim this section supports is therefore precise: removing
+the positions from the same prior removes the benefit and produces overfitting.
+It does not establish that every global descriptor is useless.
+
 **Finding 2: the value of the prior is spatial.** Keeping the content and
 destroying the layout drops performance *below* the no-DINO baseline. The claim
 is not that the model learned what the objects look like; it is that the prior

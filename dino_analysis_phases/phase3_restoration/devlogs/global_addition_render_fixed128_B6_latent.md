@@ -233,3 +233,17 @@ reverse is equally possible. Wait for 300k.
 **Co-inflation watch** (still ungated): latent 7.53e+03 and projected 3.15e+03
 at 88k. Both are large in absolute terms — E1-render sat at 5.21e+03 / 5.06e+03
 at 61k — so read both columns of `dino_stability.csv`, not just the flat ratio.
+
+## 2026-09-03 — RE-READ: overfitting, and how identifying the vector is
+
+Training loss over the last 10k iterations is 0.0444 against E0's 0.0587, while
+validation ends 2.3 dB below E0 and 0.86 dB below this arm's own 60k peak. The
+arm overfits; "the network has to work around the prior" was the wrong reading.
+
+Feature-space check (job 1802097, `global_vector_identifiability.py`, n=6,101
+training scenes, two random 128 crops each): the pooled centred B6 vector
+identifies its scene top-1 17.7% of the time (chance 0.016%), median rank 109;
+the last-layer CLS token, which this arm did NOT use, is sharper: top-1 39.5%,
+median rank 4. So the objection "you pooled the wrong thing" cuts the other
+way: the reference methods' descriptor is a better fingerprint, not a better
+prior. Full numbers in DEVLOG Step 38.

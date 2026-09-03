@@ -56,6 +56,15 @@ model uses each image's specific render, not a generic template.
 the content and it falls BELOW baseline. The claim is not "DINO knows about
 chairs", it is "DINO knows WHERE".
 
+  MECHANISM, measured 2026-09-03 (DEVLOG Step 38): global-render OVERFITS —
+  train loss 24% below E0's, validation 2.3 dB worse and collapsing 0.86 dB from
+  its 60k peak. The pooled vector of a random crop is a PARTIAL scene ID (top-1
+  17.7% of 6,101, 1,000x chance, median rank 109). The papers' CLS token is a
+  SHARPER ID (top-1 39.5%, median rank 4), so "you pooled the wrong thing" cuts
+  the other way. State the claim as: removing the positions turns the benefit
+  into overfitting. Do NOT write "global priors are useless"; a CLS arm was
+  not run.
+
 ### Q4 — Does the FUSION OPERATOR matter? (part 1: concat)
 
 | arm | test full256 | vs addition | p |

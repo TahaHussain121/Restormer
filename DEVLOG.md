@@ -2087,3 +2087,58 @@ Gated-render and gated-noisy (a per-position, per-channel gate on the
 projected prior; the light test of "the model decides"), post-latent injection,
 B3-alone and B9-alone, the offline crop-gap correction measurement, and the
 inference-only misalignment extensions.
+
+## Step 38 — global-render re-read: it overfits, and the global vector is only a partial scene ID (2026-09-03)
+
+Prompted by a fair objection: global-render pools the B6 patch tokens, not the
+last-layer CLS token the reference methods use, so is it a fair test of a
+global prior? Two measurements, no training.
+
+### (a) The memorisation signature, from the existing logs
+
+| arm | train l_pix, last 10k | val PSNR best | val at 300k | drop |
+|---|---|---|---|---|
+| E0 | 0.0587 | 22.075 @268k | 22.034 | 0.04 |
+| addition-render | 0.0307 | 24.117 @204k | 24.008 | 0.11 |
+| **global-render** | **0.0444** | **20.591 @60k** | **19.734** | **0.86** |
+| addition-noisy | 0.0471 | 21.468 @128k | 21.215 | 0.25 |
+
+global-render fits the TRAINING set 24% better than E0 and generalises 2.3 dB
+worse, collapsing 0.86 dB from a 60k peak. That is overfitting, not a prior the
+network "works around". The noisy arm shows the same shape, milder.
+
+### (b) Is the global vector a scene fingerprint? (job 1802097, v100, 103 s)
+
+`scripts/global_vector_identifiability.py`: two independent random 128 crops
+per training scene, drawn as train.py draws them, DINO at 224; query crop A
+against the gallery of every scene's crop B, n = 6,101, chance top-1 = 0.00016.
+
+| vector | top-1 | top-5 | median rank | same-scene cos | hardest other scene |
+|---|---|---|---|---|---|
+| pooled B3 | 0.089 | 0.147 | 283 | 0.649 | 0.923 |
+| **pooled B6** (global-render's prior) | **0.177** | 0.260 | **109** | 0.616 | 0.860 |
+| pooled B12 | 0.323 | 0.443 | 12 | 0.584 | 0.735 |
+| **CLS B12** (the papers' descriptor) | **0.395** | 0.526 | **4** | 0.632 | 0.735 |
+
+Reading, both halves:
+
+  * The pooled B6 vector of a random crop is **1,000x chance** at identifying
+    its scene, but it is NOT a unique key: the true scene sits at median rank
+    109 of 6,101, and on average some OTHER scene's crop is closer (0.860) than
+    the same scene's other crop (0.616). So "the network memorised scene IDs"
+    is too strong. The honest sentence: the broadcast vector carries enough
+    scene-specific information to overfit on, and the loss curves show it did.
+  * **The CLS token is MORE identifying, not less** — 2.2x the top-1, median
+    rank 4. A CLS-broadcast arm would hand the network a sharper fingerprint
+    than global-render did. Direction of the prediction: it overfits at least
+    as much. It remains a prediction; the arm was not run.
+
+### What changes in the write-up
+
+global-render stays the spatial ablation (same prior, positions removed, one
+factor from addition-render). Its sentence changes from "a global prior is
+worse than no prior" to: removing the positions turns the benefit into
+overfitting (lower train loss, worse validation, 0.86 dB collapse), the
+per-image vector is a partial scene identifier (top-1 1,000x chance, median
+rank 109), and the literature's CLS descriptor is a sharper identifier still,
+so it was not tested and is not expected to help. Chapter §6.5 updated.
