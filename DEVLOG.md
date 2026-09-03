@@ -1876,3 +1876,113 @@ validation is what the shuffle control used. Both protocols. k = 0, 1, 2, 4, 8,
 16, with k=0 included as the self-check described above.
 
 Sweep submitted as job 1801014.
+
+---
+
+## Step 36 — The misalignment curve, the in-regime test, and a correction (2026-09-02 → 09-03)
+
+Two inference-only experiments on `addition-render` at its selected checkpoint
+(204,000), validation split n=339, plus the disk cleanup. **One result in this
+step corrects a claim made earlier in the same session — see (c).**
+
+### (a) RENDER MISALIGNMENT — the dose-response (job 1801014)
+
+`--render-shift k` displaces the render along x before it reaches DINO. Zero
+fill, not `np.roll`. Radar, target and crop window untouched.
+
+**k=0 reproduces the arm's recorded evaluation exactly** — 24.120 full256 and
+22.187 crop128 — so this is the arm's own inference path, not a lookalike.
+
+| shift | full256 | vs aligned | worse on | p | crop128 | vs aligned |
+|---|---|---|---|---|---|---|
+| 0 | 24.120 | — | — | — | 22.187 | — |
+| 1 | 23.920 | -0.200 | 237/339 | 9.7e-17 | 21.931 | -0.256 |
+| 2 | 23.355 | -0.765 | 279/339 | 5.9e-41 | 21.386 | -0.801 |
+| **4** | 21.914 | **-2.207** | 332/339 | 1.0e-56 | 20.155 | **-2.032** |
+| 8 | 19.659 | -4.461 | 337/339 | 2.8e-57 | 18.136 | -4.051 |
+| 16 | 17.081 | -7.039 | **339/339** | 2.6e-57 | 15.661 | -6.526 |
+
+**ONE DINO TOKEN = 8 RADAR PIXELS. Read the table in tokens, not pixels.**
+
+  * **Half a token (4 px) erases the whole benefit.** The arm is +2.043 over E0
+    on this split; a 4 px shift costs -2.207.
+  * **One token (8 px) makes the prior HARMFUL** — 19.659 against E0's 22.077,
+    i.e. **2.4 dB BELOW no prior at all**. Same territory as E1-addition-noisy,
+    same underlying reason.
+  * 1 px, an eighth of a token, is already significant.
+  * 16 px reads -7.039 against the mismatched-render control's -9.094: **the
+    binary control is the ENDPOINT of this curve.**
+
+Both protocols agree (-2.207 / -2.032 at 4 px), so this is not a scale artifact.
+Written up as chapter §7.6.
+
+  LIMIT TO STATE: pure translation on one axis. Rotation, scale error and
+  non-rigid misregistration are NOT tested.
+
+### (b) IN-REGIME FULL-FRAME INFERENCE (jobs 1801041, 1801052)
+
+Two protocols added to `predict_phase3.py`, both emitting a full 256 prediction
+scored against the REAL 256 target so every row is comparable:
+
+| condition | in regime | full res | PSNR | vs full256 | p |
+|---|---|---|---|---|---|
+| full256 | no | yes | 24.120 | — | — |
+| resize128 | yes | **no** | 11.108 | -13.012 | 2.6e-57 |
+| tiled, no overlap | yes | yes | 24.081 | -0.039 | **0.57 NULL** |
+| tiled ov64, box | yes | yes | 24.764 | +0.643 | — |
+| tiled ov64, ramp | yes | yes | **24.813** | **+0.693** | 2.6e-25 |
+
+**resize128 fails on RESOLUTION, not on regime.** Diagnostic on a 60-image
+subset: the raw 1e5 input scores 12.683 against the target; downscale-then-
+upscale with NO MODEL scores 9.357; the model output scores 11.252. The resize
+destroys 3.3 dB before inference and the model adds +1.9 back. It works and
+cannot undo resampling. Do not report this as the model failing.
+
+### (c) THE CORRECTION — "in-regime is worth ~0.7 dB" WAS WRONG
+
+Stated during the session, before the control ran. **It is wrong.**
+Non-overlapping tiles are fully in-regime at full resolution and land at
+**-0.039 dB, p=0.57 — a clean null.** Being in-regime buys NOTHING here.
+
+The +0.693 comes from OVERLAP, and the confound control separates why. A box
+window at the same overlap averages the identical tiles with equal weight
+(verified: identical tiles-per-pixel coverage, min 1 max 4), keeping the
+self-ensembling and removing the border down-weighting:
+
+    averaging          (box  - no overlap)   +0.682 dB  311/339  p=2.2e-50
+    border weighting   (ramp - box)          +0.049 dB  212/339  p=8.4e-06
+
+**~93% of the gain is ordinary prediction averaging**, which would help almost
+any model and has nothing to do with the DINO prior. The Phase-5 border
+prediction IS confirmed in direction and IS significant, but it is **0.049 dB**.
+Report it as a confirmed prediction of modest size. **Do NOT present the tiling
+result as a vindication of the crop measurement.**
+
+Consequence for planning: a ~38 h retraining run at the evaluation resolution
+can no longer be justified by the crop measurement alone. §11.1 has been
+qualified accordingly.
+
+**What still stands:** overlapped tiled inference gives **+0.693 dB for no
+retraining and no parameters**, larger than the depth finding, at 9 forward
+passes per image instead of 1. An inference recipe, not an architectural result;
+chapter §7.7 reports it separately from the arm comparisons.
+
+### (d) DISK CLEANUP — 497 GB → 7.9 GB
+
+`experiments/` held 497 GB. Two thirds was `training_states/` — resume data at
+**twice** the size of the models, for arms that have all finished.
+
+Kept per arm: the validation-selected checkpoint, the final 300k, and
+`net_g_latest`. crossattn keeps 4k/176k/178k (all three referenced by the
+Phase-4 diagnosis outputs); priorquery keeps 90k as the dropped arm's only
+record. Both OLD baseline directories untouched.
+
+**All 34 keepers were loaded and md5'd BEFORE any deletion** — the script aborts
+without deleting if a keeper is missing or unreadable — and re-verified
+byte-identical afterwards, 34/34. Deleted 1,610 checkpoints and 1,634 states.
+
+Untouched: training logs and `dino_stability.csv` (the checkpoint-selection
+provenance), and the stale `RUNNING_JOB` locks for crossattn and priorquery.
+
+Manifest committed at `dino_analysis_phases/phase3_restoration/KEPT_CHECKPOINTS.json`,
+NOT left in `experiments/`, which is gitignored.

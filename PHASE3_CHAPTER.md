@@ -969,6 +969,131 @@ a consistent small loss.
 
 ---
 
+### 7.6 How precisely must the render be registered?
+
+Section 6.4's mismatched-render control establishes that the prior is
+image-specific: give each image another image's render and 9.094 dB is lost.
+That is a single binary point, and it leaves the practical question unanswered.
+A deployed system will not swap renders; it will misregister them slightly. How
+slight is slight enough?
+
+The render is displaced by *k* pixels along one axis before it reaches DINO, for
+k = 0, 1, 2, 4, 8, 16. Nothing else moves: the radar, the target and the crop
+window are untouched, so the single factor is render-to-radar registration. The
+displaced strip is filled with zeros rather than wrapped, since wrapping would
+reintroduce object structure at the opposite edge and understate the damage.
+Measured on `addition-render` at its selected checkpoint, validation split,
+n=339 — the same arm and split the mismatched-render control used, so the
+dose-response and its endpoint sit on the same model.
+
+**The k=0 row reproduces the arm's recorded evaluation exactly** (24.120 and
+22.187), which establishes that this is the arm's own inference path and not a
+re-implementation that lands nearby.
+
+| shift | full256 | vs aligned | worse on | p | crop128 | vs aligned |
+|---|---|---|---|---|---|---|
+| 0 px | 24.120 | — | — | — | 22.187 | — |
+| 1 px | 23.920 | −0.200 | 237/339 | 9.7×10⁻¹⁷ | 21.931 | −0.256 |
+| 2 px | 23.355 | −0.765 | 279/339 | 5.9×10⁻⁴¹ | 21.386 | −0.801 |
+| **4 px** | 21.914 | **−2.207** | 332/339 | 1.0×10⁻⁵⁶ | 20.155 | **−2.032** |
+| 8 px | 19.659 | −4.461 | 337/339 | 2.8×10⁻⁵⁷ | 18.136 | −4.051 |
+| 16 px | 17.081 | −7.039 | **339/339** | 2.6×10⁻⁵⁷ | 15.661 | −6.526 |
+
+**The tolerance is sub-token.** One DINO token spans 8 radar pixels at this
+resolution, so the natural unit makes the result sharper than the pixel counts
+suggest:
+
+* **Half a token (4 px) erases the entire benefit.** The arm is +2.043 dB over
+  the baseline on this split; a four-pixel displacement costs −2.207. At that
+  point the prior is worth nothing.
+* **One full token (8 px) makes the prior actively harmful.** 19.659 against the
+  baseline's 22.077 is 2.4 dB *below* using no prior at all — the same territory
+  `E1-addition-noisy` occupies, and for the same underlying reason: a prior that
+  describes the wrong thing is worse than no prior.
+* **An eighth of a token (1 px) is already significant**, −0.200 dB, worse on
+  70% of images.
+* The curve runs toward the mismatched-render floor: −7.039 at 16 px against
+  −9.094 for a wholly wrong render. **The binary control is the endpoint of a
+  continuous curve.**
+
+Both protocols agree closely (−2.207 and −2.032 at 4 px), so this is not an
+artifact of the scale transfer.
+
+This sharpens the spatial finding from an independent direction. If the prior
+were functioning as a global descriptor of object identity, a four-pixel
+displacement could not cost 2.2 dB. It is also the study's clearest statement of
+a deployment constraint: **the method requires sub-token registration accuracy
+between the render and the radar.**
+
+  *Limitation.* This is pure translation along one axis. Rotation, scale error
+  and non-rigid misregistration are not tested, and there is no basis for
+  assuming they behave the same way.
+
+---
+
+### 7.7 Can the regime mismatch be removed at inference time?
+
+Section 7.4 shows the prior differs between the training and evaluation regimes.
+That invites an obvious remedy which requires no retraining: run the model
+in-regime on full frames. Two ways to do it, both producing a full 256
+prediction scored against the same real 256 target, so all rows below are
+directly comparable.
+
+**resize128** downscales the frame to 128, predicts, and upscales back.
+**tiled128** cuts the frame into 128 tiles, predicts each at native resolution,
+and stitches them. Validation, n=339, `addition-render`.
+
+| condition | in regime | full res | PSNR | vs full256 | better on | p |
+|---|---|---|---|---|---|---|
+| full256 (whole frame) | no | yes | 24.120 | — | — | — |
+| resize128 | yes | **no** | 11.108 | −13.012 | 0/339 | 2.6×10⁻⁵⁷ |
+| tiled, no overlap | yes | yes | 24.081 | −0.039 | 177/339 | **0.57** |
+| tiled, overlap 64, box | yes | yes | 24.764 | +0.643 | — | — |
+| tiled, overlap 64, ramp | yes | yes | **24.813** | **+0.693** | 263/339 | 2.6×10⁻²⁵ |
+
+**resize128 fails on resolution, not on regime.** The collapse is not the model
+breaking. Downscaling and upscaling the *input* with no model at all already
+scores 9.357 dB against the target, down from the raw input's 12.683; the model
+then recovers to 11.252, adding +1.9 dB to what it was handed. It is doing its
+job and cannot undo the resampling. Halving the resolution destroys the
+high-frequency content the task exists to recover, and that cost dwarfs any
+benefit from being in-regime.
+
+**Being in-regime, by itself, buys nothing.** Non-overlapping tiles are fully
+in-regime at full resolution and land at −0.039 dB, p=0.57 — a clean null. This
+is worth stating plainly because the opposite is the intuitive expectation, and
+because §7.4 makes it tempting to assume otherwise. The regime mismatch is real
+as a property of the features; it does not, on its own, cost measurable
+restoration quality here.
+
+**The overlap gain is almost entirely self-ensembling.** Overlapping tiles do
+two things at once — they average up to four predictions per pixel, and the ramp
+window down-weights tile borders, where §7.4 located the drift. A box window at
+the same overlap averages the identical tiles with equal weight, keeping the
+first and removing the second. Verified: both windows give identical
+tiles-per-pixel coverage. The decomposition:
+
+```
+averaging (box − no overlap)          +0.682 dB   311/339   p = 2.2e-50
+border down-weighting (ramp − box)    +0.049 dB   212/339   p = 8.4e-06
+```
+
+**About 93% of the gain is ordinary prediction averaging**, which would help
+almost any model and has little to do with this project's prior. The border
+effect that §7.4 predicts is real and significant in the predicted direction,
+but **small** — 0.049 dB. Reported as such: a confirmed prediction of modest
+size, not a vindication of the mechanism.
+
+The practical conclusion stands regardless of the mechanism: **overlapped tiled
+inference is worth +0.693 dB on full frames for no retraining and no additional
+parameters**, at the cost of nine forward passes per image instead of one. It is
+larger than the depth finding of §6.8. It is an inference-time recipe, not an
+architectural result, and is reported separately from the arm comparisons for
+that reason.
+
+
+---
+
 ## 8. Synthesis
 
 Holding the injection point, the prior and the backbone fixed and varying only
@@ -1098,6 +1223,15 @@ published fusion block turns out to be load-bearing for optimisation — it brea
 a double zero-initialisation deadlock — independently of whatever it contributes
 representationally.
 
+Two further results come from inference alone, with no retraining. The prior
+must be registered against the radar to **sub-token** accuracy: displacing the
+render by half a DINO token erases the entire benefit, and by one full token
+makes the prior worse than no prior at all, which places a concrete deployment
+constraint on the method. And overlapped tiled inference is worth +0.693 dB on
+full frames for no additional parameters — though a control shows roughly 93% of
+that is ordinary prediction averaging rather than anything specific to the
+prior.
+
 Underneath the protocol split sits a property of the prior itself, measured
 directly rather than assumed: DINO does not describe a crop the way it describes
 the same region of the full frame. The degraded-versus-clean agreement is
@@ -1134,9 +1268,18 @@ operator that does not matter.
 
 **Training at the evaluation resolution.** Section 7.4 establishes that DINO's
 description of a crop differs systematically from its description of the same
-region in the full frame. The clean fix is to train where the model is
+region in the full frame. The candidate fix is to train where the model is
 evaluated, or to mix both resolutions during training, so that the radar stream
 and the prior stream move to the new scale together.
+
+> **The evidence for this is weaker than §7.4 alone suggests, and §7.7 is why.**
+> Non-overlapping tiled inference is fully in-regime at full resolution and is a
+> clean null against whole-frame inference (−0.039 dB, p=0.57). So the regime
+> mismatch, though real in feature space, does not by itself cost measurable
+> restoration quality here. Training at the evaluation resolution may still help
+> for other reasons — the older progressive baseline that did train at 256
+> outscored E0-fixed by 0.53 dB — but it should not be justified by the crop
+> measurement alone.
 
 > **DSGIR's hybrid preprocessing does not transfer directly, and the difference
 > matters.** They draw each iteration from either a full image resized to 224 or
