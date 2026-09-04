@@ -2142,3 +2142,74 @@ overfitting (lower train loss, worse validation, 0.86 dB collapse), the
 per-image vector is a partial scene identifier (top-1 1,000x chance, median
 rank 109), and the literature's CLS descriptor is a sharper identifier still,
 so it was not tested and is not expected to help. Chapter §6.5 updated.
+
+## Step 39 — The crop-gap is mostly a learnable transform (2026-09-04)
+
+Follow-up to Step 34, in feature space, no training arm. Question: is the
+crop-versus-full DINO drift a SIMPLE transform of the crop features that a tiny
+module could undo before the prior reaches the projection?
+
+**Setup** (`phase5_crop_context/crop_gap_correction.py`, job 1802212, v100,
+6.5 min, 21 GB RAM; a first attempt, 1802131, ran out of the 23 GB per-GPU cap
+after the linear fit and the script was rewritten to stream). Every training
+scene: full render -> DINO 448 -> 32x32 tokens (the eval regime); one
+token-aligned random 128 crop -> DINO 224 -> 16x16 tokens (the train regime);
+target = the 16x16 block of the full grid at the crop position. Crop tokens
+centred with the train128 mean, full tokens with the eval256 mean, i.e. exactly
+the two tensors an arm receives in its two regimes. Fits on 4,880 scenes,
+scores on 1,221 HELD-OUT scenes. Border = 2-token ring.
+
+**A0, the raw gap, all 6,101 scenes** (cosine crop token vs full token at the
+same place; wrong-place floor = the token half a block away):
+
+| layer | all | border | centre | wrong-place |
+|---|---|---|---|---|
+| B3 | 0.483 | 0.420 | 0.532 | -0.116 |
+| **B6** | 0.549 | 0.505 | 0.582 | -0.179 |
+| B9 | 0.524 | 0.457 | 0.576 | -0.182 |
+| B12 | 0.548 | 0.490 | 0.594 | -0.021 |
+
+(Step 34 reported 0.708 for B6 on raw tokens; this is the CENTRED cosine, as
+Step 34 also noted centring lowers it to ~0.5. Consistent.)
+
+**Corrections on B6, held-out scenes:**
+
+| candidate | params | cos all | cos border | rel-L2 | R² | own-place top-1 | gap closed |
+|---|---|---|---|---|---|---|---|
+| A0 nothing | 0 | 0.547 | 0.504 | 0.911 | 0.08 | 0.215 | 0% |
+| A1 per-channel affine | 1.5k | 0.633 | 0.596 | 0.750 | 0.42 | 0.276 | 19% |
+| **A2 linear 768x768** | 591k | **0.871** | 0.858 | 0.480 | 0.75 | 0.405 | **71.5%** |
+| A2p + per-position bias | +197k | 0.872 | 0.860 | 0.478 | 0.76 | 0.406 | 71.7% |
+| **A3 A2 + two 3x3 convs** | +3.5M | **0.940** | 0.931 | 0.324 | 0.88 | **0.566** | **86.8%** |
+
+Readings:
+
+  * **The drift is largely a fixed linear transform of the token.** One 1x1
+    linear map, fit in closed form, removes 71.5% of the gap on scenes it never
+    saw, explains 75% of the target variance, and nearly doubles the chance that
+    a corrected token is closest to its OWN position (0.215 -> 0.405). It is not
+    pulling everything toward the mean.
+  * **Per-channel rescaling is not enough** (19%): the gap is a rotation/mixing
+    of channels, not a statistics offset — which is why centring (Step 34) could
+    not fix it.
+  * **A fixed per-position offset adds nothing** (71.5 -> 71.7%). The border
+    drift is not "the same shift at every border token"; it depends on content.
+  * **Neighbourhood context gets to 87%.** Two 3x3 convs on top of the linear map
+    (they see the zero-padded edge, so border and centre can be treated
+    differently) close 86.8%, own-place top-1 0.566. Border closes almost as
+    well as centre for every candidate (86.1 vs 87.5%).
+  * The held-out conv loss was still falling at epoch 30 (1.05 vs train 0.91),
+    so 87% is a floor for this size, not a ceiling.
+
+**Decision rule from the plan (>50% closed on held-out with own-place retrieval
+kept): MET.** A one-factor arm is justified: addition-render + the FROZEN
+correction applied in the train128 regime only (at eval256 the full frame is
+already in the target space). Not built; awaiting the go. Saved for that use:
+`results/crop_gap_correction/A2_linear_B6.pt` and `A3_conv_B6.pt` (gitignored
+folder; regenerable in 7 minutes from the tracked script).
+
+**Caveat carried forward, unchanged:** Step 36's non-overlap tiling was fully
+in-regime and a PSNR null (-0.039, p=0.57), so removing the drift may buy no
+PSNR. What this step establishes is a feature-space fact for chapter 7.4: the
+regime shift is real, large, and mostly a learnable transform rather than lost
+information.

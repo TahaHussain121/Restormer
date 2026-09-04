@@ -956,6 +956,30 @@ than a per-position addition is. That step is reasonable and is not tested here.
 
 ---
 
+#### Is the drift lost information, or a transform?
+
+A follow-up measurement (DEVLOG Step 39) asks whether the gap can be undone.
+For every training scene, a token-aligned random 128 crop and the full frame
+were both passed through DINO, and the crop's tokens were compared with the
+tokens of the same region inside the full frame — the two tensors an arm
+receives in its two regimes. Corrections were fit on 4,880 scenes and scored on
+1,221 held-out scenes, at block 6. A per-channel rescaling closes only 19% of
+the cosine gap, which is why centring could not remove it. A single linear map,
+768 by 768 and fit in closed form, closes 71.5%, explains 75% of the target
+variance, and nearly doubles the rate at which a corrected token is closest to
+its own position rather than to a neighbour (0.215 to 0.405), so it is not
+merely pulling features toward the mean. Adding a fixed per-position offset
+changes nothing, so the border drift is content-dependent rather than a constant
+shift. Two small 3×3 convolutions on top of the linear map, which can see the
+crop edge, reach 86.8%, with the border closing almost as well as the centre.
+
+The drift is therefore mostly a *learnable transform* of the token rather than
+information the crop has lost, which makes a correction module a candidate
+fix. Whether it would change restoration quality is a separate question, and
+§7.7 gives the reason for caution: fully in-regime tiled inference was a PSNR
+null, so the shift, though large in feature space, may cost little at the
+output.
+
 ### 7.5 Where the gain actually comes from
 
 Aggregate PSNR hides the distribution, and the per-image behaviour is not
@@ -1324,6 +1348,13 @@ and the prior stream move to the new scale together.
 > measures that even a half-token misregistration erases the prior's entire
 > benefit. The transferable idea is mixed-resolution training of *both* streams,
 > not hybrid preprocessing of the prior alone.
+
+> **A cheaper alternative now has a measurement behind it.** Section 7.4 reports
+> that a frozen linear map closes 71.5% of the crop-versus-full gap on held-out
+> scenes and a small convolutional correction 86.8%. An arm that applies such a
+> frozen correction only in the 128-crop regime would be a one-factor change
+> against addition-render at no trainable parameters, and is the form the fix
+> should take if it is attempted.
 
 ### 11.2 Considered and declined, with the reason
 

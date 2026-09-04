@@ -433,3 +433,24 @@ measure it.
 All three sit in this folder and are tracked in git. **The figures and JSON in
 `results/` are NOT tracked** — re-run the scripts to rebuild them. DEVLOG Step 34
 holds the numbers independently.
+
+---
+
+## Addendum (2026-09-04): can the drift be undone? `crop_gap_correction.py`
+
+Plain words: we asked whether the difference between "DINO looking at a crop"
+and "DINO looking at the same place inside the full picture" is a fixed
+distortion a tiny layer could reverse, or information that is simply gone.
+We took every training scene, made one random crop, and used the full-picture
+tokens at that same place as the correct answer. Then we fit small corrections
+on 4,880 scenes and tested on 1,221 scenes they never saw.
+
+  per-channel rescaling      closes 19%   -> it is not a statistics offset
+  one linear layer (1x1)     closes 72%   -> most of it is a fixed mixing of channels
+  + a fixed border offset    closes 72%   -> the border drift depends on content
+  + two small 3x3 convs      closes 87%   -> seeing the crop edge helps a little more
+
+So the drift is mostly reversible. Numbers and the decision in DEVLOG Step 39.
+Outputs: `results/crop_gap_correction/crop_gap_correction.json`,
+`A2_linear_B6.pt`, `A3_conv_B6.pt` (results folder is gitignored; the script
+regenerates them in about seven minutes on a v100).

@@ -274,6 +274,13 @@ layer), and centring does NOT compensate (raw cosine 0.66–0.76 falls to
 
 Written up in `PHASE3_CHAPTER.md` §7.4.
 
+  ADDED 2026-09-04 (DEVLOG Step 39): the drift is MOSTLY A LEARNABLE
+  TRANSFORM, not lost information. On 1,221 held-out training scenes a single
+  frozen 768x768 linear map closes 71.5% of the B6 crop-vs-full gap; two 3x3
+  convs on top close 86.8%; per-channel rescaling only 19% (so centring never
+  could). A correction arm is justified by the plan's rule but NOT built; and
+  Step 36's in-regime tiling null means it may still be a PSNR null.
+
 ## The ending — the sentence the whole study earns
 
 > Reading DINO at multiple depths improves restoration. The fusion operator does
