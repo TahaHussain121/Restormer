@@ -2292,3 +2292,106 @@ becomes: reading DINO at THREE depths, combined per position and injected by
 plain addition, is worth +0.255 dB on the locked test split for +0.78%
 parameters; a second depth alone is a null and a fourth adds nothing. The
 "middle point on the additive depth curve" item in chapter §11.1 is CLOSED.
+
+## Step 41 — Wave 2 built and submitted: the gate, the injection point, the single depths (2026-09-07)
+
+Five arms, all one-factor changes, all smoke-passed, all submitted. Three need
+new code; two are config-only. Predictions are pre-registered in each arm's
+devlog, written before submission.
+
+| arm | experiment | the one change | params vs addition-render | job |
+|---|---|---|---|---|
+| gated-render | `Holo_gated_render_fixed128_B6_latent` | a per-position, per-channel gate on P(D) | +295,296 | 1805344 |
+| gated-noisy | `Holo_gated_noisy_fixed128_B6_latent` | the same gate, on the arm whose prior HURTS | +295,296 | 1805345 |
+| postlatent-render | `Holo_postlatent_render_fixed128_B6` | prior added AFTER the 8 latent blocks | **0** | 1805346 |
+| addition-render B3 | `Holo_addition_render_fixed128_B3_latent` | single depth B3 instead of B6 | **0** | 1805347 |
+| addition-render B9 | `Holo_addition_render_fixed128_B9_latent` | single depth B9 instead of B6 | **0** | 1805348 |
+
+### (a) THE GATE — the degree of freedom no arm has varied
+
+`basicsr/models/archs/dino_gate.py`, imported by both gated arms so there is one
+implementation:
+
+    g      = sigmoid( G( concat[ F , P(D) ] ) )      [B, 384, h, w], in (0,1)
+    guided = F + g * P(D)
+
+`G` is one `Conv2d(768 -> 384, 1x1)`. The switch at each position and channel is
+decided from BOTH the network's own feature there and the prior there.
+
+**Why this is not a fourth operator null waiting to happen.** Three arms varied
+HOW the prior is mixed (concat, ACA at matched depth, the ACA ladder) and all
+were nulls. **None varied HOW MUCH arrives, per position.** AFFM cannot: its
+weights sum to 1 by construction, so it selects the depth mix but never the
+total. `DinoAca` has a gate, but ONE SCALAR for the whole image. The recurring
+objection to plain addition — that it hands the network everything everywhere —
+has therefore never actually been tested. It is now.
+
+**Initialisation.** `G` is zero-init, so the gate starts EXACTLY 0.5 at every
+position and channel: deterministic and seed-independent, the same property
+AFFM's uniform 1/L start has. Step-0 equality with E0 comes from `P`, not from
+the gate.
+
+**The staircase runs the OPPOSITE way from `DinoAca`'s, and this is what stops
+it deadlocking.** At step 1, d(g·P(D))/dP = g = 0.5, non-zero, so `P` learns
+immediately; d(g·P(D))/dG carries a factor P(D) = 0, so `G` gets exactly zero
+and learns from step 2. In `aca-L6-nosa` BOTH paths to the loss passed through a
+zero-initialised weight, which is why nothing upstream ever moved. Verified on a
+real backward, not argued.
+
+### (b) POST-LATENT — the limitation the chapter has carried since §4.5
+
+One line of the forward pass moves. The tensor on either side of the latent
+stage has the same shape, so `P` is unchanged and the parameter count is
+**EXACTLY addition-render's**. The chapter argues "before" strictly contains
+"after" because of the residual path; the code hard-refuses any other point and
+§9 lists it as untested. It is now testable. The eight latent blocks hold 55.0%
+of the network and under this arm never see the prior.
+
+Config uses `dino_injection: post_latent`. The parent's guard accepts only
+`latent`, so the subclass pops the key, validates it, hands the parent the
+string it demands, and overwrites the attribute — four lines, confined to that
+class, so a YAML typo still cannot silently relocate an injection anywhere else.
+
+Monitoring caveat: `latent_norm` measures the latent OUTPUT here, so this arm's
+5,000-iteration gate reference is NOT comparable with the other arms'.
+
+### (c) B3 AND B9 — the oldest open item, and its counterpart
+
+Config-only, same class, same parameter count. **The B3 run was pre-registered
+in the Phase-3 README and never run**; the criterion conflict behind it (B3 wins
+the same-vs-different-scene advantage, B6 wins raw correspondence) has stood
+unresolved since Phase 2. B9 is included because the four-depth AFFM arm gave it
+the LARGEST learned share (0.326), the only evidence on record that a different
+single depth might beat B6. Neither is an AFFM or an ACA arm: AFFM needs two or
+more depths to have anything to choose between, and Finding 6 showed the
+attention operator is inert.
+
+### (d) SMOKE — one file, three families, 123 checks
+
+`scripts/smoke_tests_wave2.py` reads the family from the config and checks the
+shared contract plus the family-specific part.
+
+    gated-render        30/30      gated-noisy        29/29
+    postlatent-render   24/24      addition B3        20/20
+    addition B9         20/20
+
+Every arm: step-0 output identical to E0 (max deviation 0.0), trunk
+byte-identical to E0 for seed 100, exact parameter delta, DINO frozen with no
+gradient, eval256 path 448 -> 32x32 with no feature-grid interpolation.
+Gate arms additionally: the map is [B, 384, g, g] (per position AND channel, not
+a scalar), every value strictly inside (0,1), exactly 0.5 at init, and the
+staircase in the correct direction. Post-latent additionally: the latent stage
+receives an unguided input and the prior is added to `self.latent(F)`, both
+verified by recomputation.
+
+### Predictions, all registered before submission
+
+  * gated-render: does NOT beat addition-render by >0.10 dB. Every operator
+    change on this data has been a null and the render prior is uniformly
+    useful, so there is little for a spatial switch to exploit. The gate
+    STATISTICS are the real deliverable either way.
+  * gated-noisy: recovers at least half the 0.577 dB deficit (lands above
+    21.60). If it does not, the source finding gets stronger, not weaker.
+  * postlatent: worse than addition-render by >0.30 dB, still well above E0.
+  * B3, B9: neither beats B6 by >0.10 dB; the depth COUNT is the lever, not the
+    depth CHOICE.
