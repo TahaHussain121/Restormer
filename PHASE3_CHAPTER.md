@@ -823,6 +823,48 @@ Paired per-image, n=338, Wilcoxon signed-rank.
 | dinolight-render | +0.309 | 9.9×10⁻⁸ | −0.206 | 0.0054 |
 | affm-render | +0.230 | 4.3×10⁻⁷ | +0.044 | 0.14 |
 
+### 7.2a The additive depth ladder — a threshold, not a ramp
+
+The additive operator carries the depth finding, and until two further arms were
+trained it had only its endpoints: one depth and four. Two nested arms, differing
+from the four-depth arm only in the length of the layer list, complete it. Each
+adds one depth to the one before, so the four arms trace a single curve with a
+single factor moving.
+
+| depths | parameters over addition-render | val full256 | test full256 |
+|---|---|---|---|
+| {6} — addition-render | — | — | — |
+| {3,6} | +0.52% | +0.140 (p = 0.007) | **−0.012 (p = 0.96)** |
+| {3,6,9} | +0.78% | +0.262 (p = 3.1×10⁻⁷) | **+0.255 (p = 2.6×10⁻⁶)** |
+| {3,6,9,12} | +1.04% | +0.284 (p = 1.0×10⁻⁹) | +0.230 (p = 4.3×10⁻⁷) |
+
+The relationship is not graded. A single extra depth buys nothing: {3,6} lands
+on opposite sides of zero across the two splits, the same signature the
+concatenation null shows, and the honest reading of both is a true null. Three
+depths deliver the entire effect, replicating across splits at better than
++0.25 dB. The fourth depth then adds nothing measurable: comparing {3,6,9}
+against {3,6,9,12} directly gives −0.022 and +0.025 on validation and test
+full-frame and −0.080 and +0.013 on the matched crop, four cells that are null
+and that fall on both sides of zero.
+
+Two things follow. First, the recipe worth quoting is **{3,6,9}: +0.255 dB on
+the locked test split for a 0.78% parameter increase**, matching the four-depth
+arm at three quarters of its cost. Second, the inertness of the deepest block is
+independently consistent with what that arm *learned*: across the last hundred
+logged points of the four-depth run, block 12 carried the smallest and least
+stable share of the per-position softmax. What the network down-weighted and
+what an ablation can remove agree, and they were measured by unrelated means.
+
+Neither new arm loses on either protocol, which extends to the whole additive
+ladder the property that separates it from the attention family.
+
+A pre-registration note, since one prediction failed. The two-depth arm was
+predicted at +0.05 to +0.20 dB on test, on the assumption that the four-depth
+gain would accumulate gradually. It returned −0.012. The band was wrong because
+the premise was wrong, and the miss is reported rather than reconciled after the
+fact; the three-depth prediction, +0.15 to +0.25 and close to the four-depth
+arm, was essentially correct.
+
 ### 7.3 Finding 7 — the protocol split
 
 **Every attention-based arm is significantly worse than addition-render on
@@ -1309,19 +1351,17 @@ second list are not gaps in the study.
 
 ### 11.1 Open
 
+> **One item that stood here is now closed.** The additive depth curve had only
+> its endpoints; two further arms (§7.2a) fill it in and show the relationship is
+> a threshold at three depths rather than a graded ramp, so the question no
+> longer needs asking.
+
 **A parameter-matched control with no new mechanism.** The single largest
 remaining hole. An arm at the attention arms' parameter count that adds no
 attention, no gate and no new operator — for instance a two-layer projection
 with a hidden width sized to match — would isolate capacity from mechanism
 directly. aca-L6 provides partial evidence that capacity is neutral here, but a
 dedicated control would settle it rather than infer it.
-
-**A middle point on the additive depth curve.** The operator that carries the
-result has only two points, one depth and four. An arm at two or three depths
-with plain addition would cost a few thousand parameters and would establish
-whether the relationship is graded or a threshold. The equivalent ladder for the
-attention operator exists but is noisy and, given Finding 6, describes an
-operator that does not matter.
 
 **Training at the evaluation resolution.** Section 7.4 establishes that DINO's
 description of a crop differs systematically from its description of the same

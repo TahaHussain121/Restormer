@@ -106,6 +106,22 @@ choice instead of a fix for a diagnosed failure.
 |---|---|---|---|---|---|
 | affm-render {3,6,9,12}, STILL PLAIN ADDITION | **+1.04%** | **24.311** | **+0.230** | [+0.122,+0.338] | 4.3e-07 |
 
+**THE LADDER IS NOW COMPLETE (2026-09-07, DEVLOG Step 40) AND IT IS A
+THRESHOLD, NOT A RAMP.** Paired against addition-render, full256:
+
+| depths | val | test | verdict |
+|---|---|---|---|
+| {3,6} | +0.140 (p=0.007) | **-0.012 (p=0.96)** | **NULL, sign flips across splits** |
+| {3,6,9} | +0.262 (p=3.1e-07) | **+0.255 (p=2.6e-06)** | **replicates** |
+| {3,6,9,12} | +0.284 | +0.230 | replicates |
+
+And {3,6,9} vs {3,6,9,12} is null in all FOUR cells, so **B12 is inert** —
+which independently confirms that B12 carried the smallest, least stable learned
+weight (0.201). One extra depth buys nothing; three depths buy the whole effect;
+the fourth adds nothing. **Quote {3,6,9}: +0.255 dB on test for +0.78%
+parameters.** Do NOT draw a graded curve — the pre-registered prediction for
+{3,6} was +0.05..+0.20 and the test result was -0.012; that miss is on record.
+
 **FINDING 5 — MORE DEPTHS HELP, ESSENTIALLY FOR FREE.** Four DINO depths, each
 centred with its own train-only mean, combined by a per-position softmax ACROSS
 LAYERS. The output stays 768 channels because it is a weighted SUM, so the

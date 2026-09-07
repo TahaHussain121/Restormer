@@ -2213,3 +2213,82 @@ in-regime and a PSNR null (-0.039, p=0.57), so removing the drift may buy no
 PSNR. What this step establishes is a feature-space fact for chapter 7.4: the
 regime shift is real, large, and mostly a learnable transform rather than lost
 information.
+
+## Step 40 — The additive depth curve is a THRESHOLD, not a ramp (2026-09-07)
+
+Wave 1 (Step 37) finished while the session was away. Both arms trained 300k on
+a100 (jobs 1802091/1802092 hit the 24 h walltime and their chained successors
+1802220/1802221 completed, 14.3 h and 14.6 h), were selected on validation
+alone, and were evaluated on both splits and both protocols (jobs 1805059-66).
+
+### Selection (validation PSNR, 8-bit, as every other arm)
+
+| arm | best iter | val PSNR | top-5 spread | final (300k) |
+|---|---|---|---|---|
+| affm {3,6} | 220,000 | 24.2583 | 0.053 | 24.216 |
+| affm {3,6,9} | 224,000 | 24.3804 | 0.039 | 24.332 |
+
+No stability failure in either run. 151 checkpoints each, 75 validation points.
+
+### THE CURVE, paired against addition-render (B6 alone), n=339 val / 338 test
+
+| depths | val full256 | p | test full256 | p | verdict |
+|---|---|---|---|---|---|
+| {3,6} | **+0.140** | 6.9e-03 | **-0.012** | 0.96 | **NULL — sign flips across splits** |
+| {3,6,9} | **+0.262** | 3.1e-07 | **+0.255** | 2.6e-06 | **replicates** |
+| {3,6,9,12} | +0.284 | 1.0e-09 | +0.230 | 4.3e-07 | replicates |
+
+crop128, same comparison: {3,6} +0.106 (p=0.18) val / +0.066 (p=0.19) test;
+{3,6,9} +0.127 (p=0.053) val / +0.057 (p=0.32) test. **Neither loses anywhere**,
+which extends the Finding-7 property of the additive family to the whole ladder.
+
+### {3,6,9} vs {3,6,9,12} — B12 CONTRIBUTES NOTHING
+
+| cell | delta | p |
+|---|---|---|
+| val full256 | -0.022 | 0.51 |
+| val crop128 | -0.080 | 0.59 |
+| test full256 | +0.025 | 0.92 |
+| test crop128 | +0.013 | 0.80 |
+
+Four cells, all null, deltas on both sides of zero. **The fourth depth is
+inert.**
+
+### THE FINDING, and it is cleaner than the trend we expected
+
+**The depth effect is a THRESHOLD at three depths, not a graded ramp.**
+
+  * ONE extra depth buys NOTHING. {3,6} is +0.140 on validation and **-0.012 on
+    test** — on opposite sides of zero, the same signature concat-render showed
+    (+0.023 / -0.016). That is what a true null looks like, and it is now the
+    second one this measurement has produced, which is worth citing when
+    defending the positives.
+  * THREE depths gets the WHOLE effect: +0.262 val, +0.255 test, both
+    significant, both replicating.
+  * The FOURTH depth adds nothing (four null cells).
+
+So the recipe is {3,6,9}: **+0.255 dB on test for +2,307 parameters
+(+0.78% over addition-render)**. It matches the four-depth arm at three
+quarters of the (already trivial) cost.
+
+**This independently confirms the learned-weight reading of Step 32d.** The
+{3,6,9,12} arm gave B12 the smallest and least stable share (0.201 mean, std
+0.034); removing B12 entirely costs nothing measurable. Two unrelated methods —
+what the network learned to weight, and what an ablation removes — agree.
+
+**PRE-REGISTRATION SCORECARD, reported as required.**
+
+  * {3,6}: predicted +0.05..+0.20 on test. Actual **-0.012. PREDICTION WRONG.**
+    The band was set from the four-depth result on the assumption of a graded
+    curve; the curve is not graded. Recorded as a miss, not retrofitted.
+  * {3,6,9}: predicted +0.15..+0.25 and "close to the four-depth arm". Actual
+    +0.255, marginally above the band, and statistically indistinguishable from
+    the four-depth arm. Essentially correct.
+
+### What changes in the write-up
+
+THESIS_STORY Q6 and chapter §6.8/§7.2 gain the ladder. The headline sentence
+becomes: reading DINO at THREE depths, combined per position and injected by
+plain addition, is worth +0.255 dB on the locked test split for +0.78%
+parameters; a second depth alone is a null and a fourth adds nothing. The
+"middle point on the additive depth curve" item in chapter §11.1 is CLOSED.
