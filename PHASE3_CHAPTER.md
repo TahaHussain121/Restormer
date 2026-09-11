@@ -237,6 +237,14 @@ And the choice is **untested**: the code hard-refuses any other injection point,
 which keeps arms comparable but means there is no empirical comparison. It is a
 reasoned design decision, and is reported as such.
 
+> **CORRECTION, 2026-09-11 (DEVLOG Step 42). This section's argument is
+> empirically wrong on this data.** A one-factor arm that adds the identical
+> prior AFTER the eight latent blocks, at identical parameter count, is **+0.306
+> dB better on the locked test split (p = 1.8×10⁻⁸)** and +0.313 on validation,
+> and loses on neither protocol. The residual-path reasoning above is sound as
+> an argument about what the latent stage *could* carry; it does not predict
+> what training actually makes of it. This section needs rewriting.
+
 ---
 
 ## 5. Experimental protocol
@@ -864,6 +872,17 @@ gain would accumulate gradually. It returned −0.012. The band was wrong becaus
 the premise was wrong, and the miss is reported rather than reconciled after the
 fact; the three-depth prediction, +0.15 to +0.25 and close to the four-depth
 arm, was essentially correct.
+
+> **CORRECTION, 2026-09-11 (DEVLOG Step 42). The threshold reading above does
+> not survive.** A single-depth arm at **B3 alone reaches 24.309 on test,
+> level with {3,6,9}** (−0.027, p = 0.65). The {3,6} null has a different cause
+> than "one extra depth is not enough": that arm's learned softmax put 0.847 of
+> its weight on B6 and 0.153 on B3, converging onto the weaker depth, and B3
+> alone beats it by +0.240 (p = 2.7×10⁻⁶). What the data supports is narrower:
+> B6-alone addition is the low point of the render-guided arms, several
+> different single changes lift it by roughly +0.23 to +0.31 dB, and the
+> members of that tier are statistically indistinguishable. Depth count is not
+> established as the lever. This section needs rewriting.
 
 ### 7.3 Finding 7 — the protocol split
 

@@ -2395,3 +2395,167 @@ verified by recomputation.
   * postlatent: worse than addition-render by >0.30 dB, still well above E0.
   * B3, B9: neither beats B6 by >0.10 dB; the depth COUNT is the lever, not the
     depth CHOICE.
+
+## Step 42 — Wave 2 evaluated: three predictions wrong, and two earlier claims corrected (2026-09-11)
+
+Four of the five wave-2 arms finished 300k (chain successors 1806147, 1806902,
+1806903, 1807116), were selected on validation alone, and were evaluated on both
+splits and both protocols (jobs 1810388-1810403). B9 is at 298k and is added in
+a later step. **This step corrects two things this project has previously
+written down — (c) and (d) below. Read them before quoting Step 40 or the B6
+narrative.**
+
+### Selection (validation PSNR, 8-bit)
+
+| arm | selected | val PSNR | top-5 spread | final 300k |
+|---|---|---|---|---|
+| gated-render | 140,000 | 24.2109 | 0.064 | 24.140 |
+| gated-noisy | **72,000** | 21.0927 | 0.106 | 20.932 |
+| postlatent-render | 292,000 | 24.4318 | 0.014 | 24.426 |
+| addition-render B3 | 256,000 | 24.3493 | 0.039 | 24.298 |
+
+gated-noisy peaked at 72k and declined — the same early-peak shape as
+addition-noisy (128k) and global-render (60k), the other two arms below E0.
+
+### Test split, n = 338, uint16
+
+| arm | full256 | crop128 | object PSNR | SSIM |
+|---|---|---|---|---|
+| E0-fixed | 21.873 | 19.546 | 17.599 | 0.7829 |
+| addition-noisy | 21.296 | 19.062 | 17.210 | 0.7622 |
+| **gated-noisy** | **21.162** | **18.781** | 17.131 | 0.7636 |
+| addition-render (B6) | 24.081 | 22.259 | 19.673 | 0.8220 |
+| **gated-render** | 24.123 | **22.007** | 19.811 | 0.8126 |
+| **addition-render B3** | **24.309** | 22.253 | **19.976** | 0.8270 |
+| **postlatent-render** | **24.387** | 22.267 | 19.891 | 0.8270 |
+| affm {3,6,9} (reference, Step 40) | 24.336 | 22.316 | 19.951 | 0.8261 |
+
+### Paired against each arm's own reference (Wilcoxon, bootstrap 95% CI)
+
+| comparison | val full256 | test full256 | val crop128 | test crop128 |
+|---|---|---|---|---|
+| gated-render − addition-render | +0.094 (p=0.056) | +0.042 (p=0.15) | **−0.277** (4.1e-05) | **−0.252** (1.6e-05) |
+| gated-noisy − addition-noisy | **−0.375** (4.3e-08) | **−0.134** (0.016) | −0.260 (0.009) | −0.281 (0.0012) |
+| postlatent − addition-render | **+0.313** (2.1e-07) | **+0.306** (1.8e-08) | +0.088 (0.88) | +0.008 (0.55) |
+| B3 alone − addition-render | **+0.231** (1.1e-06) | **+0.228** (9.7e-06) | +0.135 (0.36) | −0.006 (0.71) |
+
+And against the best additive depth arm, affm {3,6,9}:
+
+| comparison | val full256 | test full256 | test crop128 |
+|---|---|---|---|
+| postlatent − affm {3,6,9} | +0.051 (p=0.46) | +0.051 (p=0.57) | −0.049 (0.51) |
+| B3 alone − affm {3,6,9} | −0.032 (p=0.69) | −0.027 (p=0.65) | −0.063 (0.10) |
+| B3 alone − affm {3,6} | +0.091 (p=0.023) | **+0.240** (2.7e-06) | −0.072 (0.13) |
+
+### (a) The gate: a null on the full frame, a penalty on the crop
+
+gated-render is +0.042 on test (n.s.) and +0.094 on validation (n.s.): **selection
+buys nothing on the full frame**, extending Finding 6 from "how the prior is
+mixed" to "how much of it arrives". It **loses significantly on crop128 on both
+splits** (−0.252, −0.277). It is the first additively-injected arm to pay the
+protocol penalty that until now separated the attention family from the additive
+one. Observation, not mechanism: the gate, like the attention blocks, makes the
+injection depend multiplicatively on the latent feature F; plain addition and
+the AFFM arms do not. (concat also reads F, but linearly, and does not pay it.)
+
+**What the gate did, measured on six validation frames at the selected
+checkpoint, full256:** it is binary — 57% of position-channel values below 0.1,
+40% above 0.9 — and genuinely spatial: EVERY one of the 384 channels is on at
+some positions and off at others within the same frame (median per-channel
+spatial std 0.44), and the pattern moves between frames. No channel is shut
+everywhere. It lets through about 68% of the prior's magnitude. The training-log
+statistics agree (frac_closed 0.55-0.59 from 20k on). So the network did use a
+per-position switch — and it still bought nothing.
+
+### (b) The gate does NOT rescue a bad prior. The source finding is stronger.
+
+gated-noisy is **worse than addition-noisy** on both splits and both protocols
+(test −0.134, val −0.375) and **0.711 dB below E0** on test. The gate did not
+close on the noisy prior: 50% of values below 0.1, 47% above 0.9, about 71% of
+the prior's magnitude let through — slightly MORE than the render gate. The
+explanation "the network is forced to take a bad prior everywhere and cannot
+ignore it" is therefore **not supported**: given a switch, it did not switch the
+prior off. The damage is in what the prior contains, or in the optimisation
+trajectory it induces (early peak at 72k, then decline), not in the architecture
+lacking an off-switch.
+
+### (c) CORRECTION — the injection point matters, in the opposite direction from §4.5
+
+postlatent-render — the prior added AFTER the eight latent blocks, identical
+parameter count — is **+0.306 dB on test (p=1.8e-08) and +0.313 on validation
+(p=2.1e-07)** over addition-render, and loses nowhere (crop +0.008, +0.088).
+Chapter §4.5 argued that injecting before the latent stage "strictly contains"
+what injecting after would provide. **On this data that argument is empirically
+wrong.** Injecting where only the decoder sees the prior is better, at zero
+parameter cost, by a margin comparable to the best result in the study.
+
+### (d) CORRECTION — the depth-ladder reading of Step 40 does not survive
+
+Step 40 concluded that the depth effect is "a THRESHOLD at three depths" and that
+depth COUNT is the lever. **Two measurements now contradict it.**
+
+  * **B3 ALONE matches the three-depth arm**: 24.309 against 24.336, −0.027,
+    p=0.65, and −0.032 on validation. A single depth reaches the "three-depth"
+    tier.
+  * **The two-depth null has a mechanism, and it is not "one extra depth is not
+    enough".** affm {3,6} learned to put **0.847 of its weight on B6 and 0.153 on
+    B3** (last 100k iterations, std 0.04). It converged onto the WEAKER of its two
+    depths. B3 alone beats that arm by +0.240 on test (p=2.7e-06).
+
+Learned AFFM weights, last 100k iterations, for the record:
+
+| arm | B3 | B6 | B9 | B12 |
+|---|---|---|---|---|
+| {3,6} | 0.153 | **0.847** | — | — |
+| {3,6,9} | 0.237 | 0.282 | **0.481** | — |
+| {3,6,9,12} | 0.216 | 0.257 | **0.326** | 0.201 |
+
+What the data now supports, stated as narrowly as it deserves:
+
+  * **addition-render at B6 is the LOW point of the render-guided arms, not the
+    reference ceiling.** Several different single changes lift it into a tier
+    around +0.23 to +0.31 dB on test — B3 instead of B6, three depths via AFFM,
+    injection after the latent stage, and dinolight — and **the members of that
+    tier are statistically indistinguishable from one another.**
+  * **Depth COUNT is not established as the lever.** The four-depth and
+    three-depth gains are consistent with "adding depths moves the prior away
+    from B6", and B3 alone does the same.
+  * **AFFM's learned weighting is not a reliable depth selector.** In the one
+    arm where the choice was between a better and a worse depth, it chose the
+    worse one.
+  * **The B6 lock was suboptimal for restoration.** THESIS_STORY Q6a lists three
+    "vindications" of B6 — cross-source feature consistency (Phase 1/2), the
+    tightest learned AFFM weight, and crop robustness (Phase 5). **None of the
+    three is restoration quality**, and on restoration quality B3 beats B6 by
+    +0.228 on test, replicated on validation (+0.231). Phase 2's own
+    interpretation had called the same-vs-different-scene advantage — which B3
+    wins — "the criterion to trust". It was the right one.
+
+Single-seed caveat, applied evenly: every claim above rests on one seed per arm.
+The positive ones replicate across the two independent splits at p < 1e-5 on
+test; the differences WITHIN the +0.25 tier are ~0.05 dB and not significant,
+and are not claimed.
+
+### Pre-registration scorecard
+
+| arm | prediction | result | verdict |
+|---|---|---|---|
+| gated-render | does not beat addition-render by >0.10 | +0.042 (n.s.) | **correct** |
+| gated-noisy | recovers ≥ half the deficit, lands > 21.60 | 21.162, worse than addition-noisy | **WRONG** |
+| postlatent-render | worse than addition-render by > 0.30 | **better** by +0.306 | **WRONG, sign reversed** |
+| addition-render B3 | within 0.10 of B6 | +0.228 above B6 | **WRONG** |
+| addition-render B9 | within 0.10 of B6 | pending | — |
+
+Three of four wrong, recorded as misses. Each was reasoned from the project's
+own earlier conclusions — the forced-injection explanation, §4.5's residual-path
+argument, and the three-way B6 vindication — and each of those conclusions is
+what this step corrects.
+
+### What changes in the write-up (NOT done here — the framing is the author's call)
+
+THESIS_STORY and PHASE3_CHAPTER carry correction banners pointing here. The
+following need rewriting before they are quoted: the "one sentence" and "ending"
+of THESIS_STORY; Q6 and Q6a; chapter §4.5 (injection point), §6.8 and §7.2a (the
+depth reading), §7.5, §9 ("one injection point" is no longer a limitation), §10
+(conclusion). Findings 1 (source), 2 (spatial), 6 (operator, now including the
+gate) and 7 (protocol split, now with a first additive-family member) stand.

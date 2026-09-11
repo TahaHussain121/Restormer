@@ -7,6 +7,27 @@ if this file and those disagree, THOSE are right and this one is stale.
 **STATUS: every arm is trained and evaluated on BOTH splits. The study is
 complete.** Only priorquery-render (dropped at 90k) has no numbers.
 
+> ## ⚠ CORRECTION BANNER — 2026-09-11, DEVLOG Step 42. READ BEFORE QUOTING.
+>
+> Wave 2 overturned two claims in this file. Until the text below is rewritten:
+>
+> * **"Depth count is the lever" / "threshold at three depths" is NOT supported.**
+>   B3 ALONE reaches 24.309 on test, statistically level with affm {3,6,9}
+>   (24.336, −0.027, p=0.65). The {3,6} null happened because AFFM put 0.847 of
+>   its weight on B6 — it converged onto the weaker depth.
+> * **B6 is NOT the best single depth for restoration.** B3 alone beats B6 by
+>   +0.228 on test (p=9.7e-06), +0.231 on val. The three "vindications" in Q6a
+>   are feature-space criteria, not restoration quality.
+> * **Injecting AFTER the latent stage is BETTER, not worse:** postlatent-render
+>   +0.306 on test (p=1.8e-08), zero extra parameters, loses nowhere.
+> * **The gate:** full-frame null (+0.042), significant crop128 LOSS (−0.252).
+>   On the noisy prior it made things WORSE (−0.134 vs addition-noisy) and did
+>   not close. Finding 1 (source) gets stronger; Finding 6 (operator) extends to
+>   selection.
+>
+> Findings 1, 2, 6 and 7 stand. The "one sentence", the "ending", Q6 and Q6a need
+> rewriting.
+
 **One sentence.** A DINO prior helps radar holography restoration, but only
 if you get three things right — WHERE it reads from, WHETHER it keeps spatial
 structure, and HOW MANY depths you use. HOW you mix it in matters far less
