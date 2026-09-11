@@ -2600,3 +2600,107 @@ called the advantage "the one to trust". It was.
 
 **Scorecard, wave 2 complete:** gated-render correct, gated-noisy wrong,
 postlatent wrong (sign reversed), B3 wrong, B9 correct. Two of five.
+
+## Step 44 — Wave 3 scoped down, three claims of mine corrected, and the stacking arm submitted (2026-09-11)
+
+Wave 3 was proposed as five arms and **narrowed to a sequence by the supervisor**.
+Their scoping and their corrections are adopted in full and recorded here
+because two of the corrections are errors in my own reasoning, one of which is
+contradicted by this repo's own notes.
+
+### (a) THREE CORRECTIONS TO WHAT I PROPOSED
+
+**1. "The reference papers give up the spatial grid to inject at multiple
+stages" is WRONG.** It holds for Perceive-IR (prior is 1x768) and DSGIR (SGFM
+emits channel-wise affine broadcast spatially) — the two papers Step 34 was
+discussing when it wrote "BOTH reference methods". **DINOLight is also in the
+reference set, keeps SPATIAL features (H/14 x W/14 x 768), and injects at every
+scale**, and this repo already recorded that: the dinolight-render devlog lists
+"injection points: every scale" for them against "one" for us. I generalised a
+correctly-scoped sentence to a paper it does not cover.
+
+  CONSEQUENCES. A hierarchical spatial injection arm is **not broadly novel** —
+  it is closer to what DINOLight actually does than our single-point
+  `dinolight-render` arm is. The contribution would be its **controlled
+  adaptation and evaluation on radar**, not the idea. And the claim in
+  THESIS_STORY (~line 250, ~523) and PROSE_ARGUMENTS (~line 86) that "no paper in
+  the reference set does what these attention arms do" is too broad for the same
+  reason; the narrow claim that survives is the one about SPATIAL-TOKEN
+  cross-attention. A correction banner now says so.
+
+**2. "A global prior is fatal on this data" is too broad.** What was measured is
+that OUR pooled-B6 broadcast integration underperforms (global-render, −1.284 dB,
+and Step 38 shows it overfits). That does not invalidate other global
+conditioning designs, and it should not be used to dismiss them.
+
+**3. Token repetition IS nearest-neighbour upsampling.** Calling it "exact
+coverage, not interpolation" is misleading. It is piecewise-constant
+upsampling; it preserves token boundaries, which is why it is still the right
+first choice, but **the project's "never interpolate the feature grid" condition
+would NOT still hold** for any decoder arm that uses it. If such an arm is built,
+the mapping is documented as a new, named mapping with its own justification —
+not as a continuation of the original rule. Matching spatial ratios across the
+two regimes also does not by itself guarantee crop/full feature consistency.
+
+### (b) AN OBSERVATION THAT MAY EXPLAIN THE WHOLE +0.25 TIER
+
+Raised by the supervisor from post-latent's numbers and checked across the tier.
+Against addition-render, on test:
+
+| arm | full256 | crop128 |
+|---|---|---|
+| postlatent-render | **+0.306** | +0.008 |
+| addition-render B3 | **+0.228** | −0.006 |
+| affm {3,6,9} | **+0.255** | +0.057 (n.s.) |
+| affm {3,6,9,12} | **+0.230** | +0.044 (n.s.) |
+
+**Every member of the tier gains ONLY on the out-of-regime protocol and is flat
+in the regime it trained in.** That is a shared signature, and it is more
+consistent with these arms addressing one common weakness — plausibly robustness
+to the train-to-eval scale shift measured in Phase 5 — than with four
+independent improvements to restoration quality.
+
+  STATED AS AN OBSERVATION, NOT A FINDING. The two protocols score different
+  targets, so the magnitudes are not directly comparable; what is comparable is
+  the sign and significance of paired deltas within a protocol, and those are
+  what show the pattern. Post-latent's +0.306/+0.008 in particular **motivates
+  investigating placement and context; it does NOT establish that the prior's
+  benefit occurs exclusively in the decoder**, which is how I first read it.
+
+### (c) THE AGREED WAVE-3 SEQUENCE
+
+1. **postlatent-B3 — SUBMITTED, job 1810432.** The stacking test.
+2. **B6 at decoder level 3 only** — the next location comparison, with a smaller
+   adapter, **holding depth at B6 so the location is not confounded**.
+3. **Either dual injection or hierarchical injection**, chosen once (2) is known,
+   depending on whether the open question is interaction or multi-scale delivery.
+4. **post-latent + AFFM three-depth — DEFERRED.** B3 alone weakens the case for
+   depth mixing.
+
+**Dual injection is downgraded from prerequisite to supporting experiment.** My
+claim that it "cleanly separates" late-arrival from unguided-latent does not
+hold: it also changes capacity, total guidance strength and the optimisation
+path, so if it loses to post-latent alone that is *consistent with* early
+guidance being unhelpful but does not prove the latent blocks must stay
+unguided. Its projections would be INDEPENDENT (two separate `P`), which is what
+the quoted +295,296 assumed; a shared projection is a different arm.
+
+Also deferred, both by decision: applying the Step-39 feature-gap correction
+inside restoration (the correction itself is already measured; using it is a
+separate experiment), and disk cleanup, which is to be decided separately from
+the scientific plan and only against an exact deletion manifest.
+
+### (d) THE ARM THAT WENT OUT
+
+`Holo_postlatent_render_fixed128_B3`, config-only from the post-latent class and
+the existing B3 means, **parameter count identical to addition-render's**, smoke
+24/24, submitted as job 1810432. It is **NOT a one-factor arm** against
+addition-render and will not be reported as one; its references are its two
+constituents.
+
+**The reporting rule for a null is fixed in advance**, in the supervisor's
+words: if it does not beat both constituents, write **"the improvements did not
+combine under this training recipe"** — NOT "the same ceiling", and no statement
+about a performance bound. One combined run cannot establish a limit; it can
+only fail to show addition. "Config-only" lowered implementation risk, not
+experimental risk. Full pre-registration in the arm's devlog.

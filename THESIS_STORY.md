@@ -30,6 +30,17 @@ complete.** Only priorquery-render (dropped at 90k) has no numbers.
 >   B9 the LARGEST share and B3 the smallest — they anti-predict single-depth
 >   quality. Do not cite AFFM weights as evidence about which depth is best.
 >
+> * **A REFERENCE-PAPER CLAIM IN THIS FILE IS TOO BROAD** (lines ~250 and ~523,
+>   and the same wording in `PROSE_ARGUMENTS.md`). "No paper in the reference set
+>   does what these attention arms do" enumerates only Perceive-IR and DSGIR.
+>   **DINOLight is also in the reference set, keeps SPATIAL DINO features, and
+>   injects at MULTIPLE stages — and our ACA and AFFM blocks are adopted from it
+>   and cited.** The narrow claim that survives is the one about SPATIAL-TOKEN
+>   cross-attention (Perceive-IR's 1x768 prior has no tokens to attend over), and
+>   it should be stated that way. Note also that `dinolight-render` implements
+>   ONE injection point where the paper uses every scale, so it is a partial
+>   adaptation, as its own devlog records.
+>
 > Findings 1, 2, 6 and 7 stand. The "one sentence", the "ending", Q6 and Q6a need
 > rewriting.
 
