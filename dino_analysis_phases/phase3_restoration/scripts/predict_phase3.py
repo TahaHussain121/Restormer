@@ -204,6 +204,14 @@ def main():
                          'reaches DINO (render arms only). 0 = the normal '
                          'aligned path. Controls only; never used for a '
                          'headline number.')
+    ap.add_argument('--aca-intervention', default='none',
+                    choices=['none', 'no_cross', 'uniform_cross'],
+                    help='ACA arms only: interrogate the TRAINED block. '
+                         'no_cross zeroes alpha*F_ca and keeps F_sa; '
+                         'uniform_cross replaces the cross channel-attention '
+                         'matrix with a uniform one and keeps its values. '
+                         'none is a strict no-op. Controls only; never a '
+                         'headline number.')
     args = ap.parse_args()
 
     with open(args.config) as f:
@@ -248,6 +256,18 @@ def main():
         print(f'  DINO mode {mode} -> mean buffer '
               f'{"mu_train128" if mode == "train128" else "mu_eval256"}, '
               f'path {net.dino_mean_paths[mode]}')
+
+    # ACA interventions: refuse rather than silently do nothing on an arm that
+    # has no ACA block, exactly as --render-shift refuses on a non-render arm.
+    if args.aca_intervention != 'none':
+        if not hasattr(net, 'aca'):
+            raise SystemExit(
+                f'--aca-intervention {args.aca_intervention} given, but '
+                f'{arch_type} has no ACA block. Refusing to run a control that '
+                f'would do nothing.')
+        net.aca.aca_intervention = args.aca_intervention
+        print(f'  ACA INTERVENTION: {args.aca_intervention}  '
+              f'(inference-only; the block is otherwise as trained)')
 
     lq_dir = os.path.join(DATASET, f'{args.split}_verynoisy')
     gt_dir = os.path.join(DATASET, f'{args.split}_clean')
@@ -378,6 +398,7 @@ def main():
         'split': args.split, 'protocol': args.protocol,
         'n_images': len(ids),
         'render_shift_px': args.render_shift,
+        'aca_intervention': args.aca_intervention,
         'tile_overlap': args.tile_overlap if args.protocol == 'tiled128'
         else None,
         'tile_window': args.tile_window if args.protocol == 'tiled128'

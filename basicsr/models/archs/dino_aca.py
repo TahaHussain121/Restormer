@@ -110,6 +110,20 @@ class DinoAca(nn.Module):
         # the gate. -2.0 -> sigmoid ~ 0.119
         self.alpha_logit = nn.Parameter(torch.tensor(float(alpha_init)))
 
+        # INFERENCE-ONLY INTERVENTIONS on a TRAINED block. Default 'none' is a
+        # strict no-op: the branches below are not entered and the arithmetic is
+        # byte-identical to the block every finished arm trained with. These
+        # exist to interrogate a trained checkpoint -- they establish what the
+        # trained model DEPENDS on, never how a model trained without the
+        # component would perform.
+        #   'none'          the block as trained
+        #   'no_cross'      alpha * F_ca forced to zero; F_sa untouched
+        #   'uniform_cross' the CROSS channel-attention matrix replaced by a
+        #                   uniform one, values (V') untouched -- so the prior
+        #                   still reaches the output, but its learned channel
+        #                   mixing does not
+        self.aca_intervention = 'none'
+
         self.project_out = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
         nn.init.zeros_(self.project_out.weight)           # guided == F at init
         if self.project_out.bias is not None:
@@ -127,7 +141,7 @@ class DinoAca(nn.Module):
     def _split(self, t, b):
         return t.reshape(b, self.heads, self.head_dim, -1)
 
-    def _attend(self, q, k, v, temperature, want_attn=False):
+    def _attend(self, q, k, v, temperature, want_attn=False, uniform=False):
         b = q.shape[0]
         h, w = q.shape[-2:]
         q, k, v = self._split(q, b), self._split(k, b), self._split(v, b)
@@ -138,6 +152,11 @@ class DinoAca(nn.Module):
         k = torch.nn.functional.normalize(k, dim=-1)
         attn = (q @ k.transpose(-2, -1)) * temperature
         attn = attn.softmax(dim=-1)                       # [B,heads,C/h,C/h]
+        if uniform:
+            # every channel attends equally to every channel. The row sums stay
+            # 1, as a softmax's do, so only the MIXING is removed -- not the
+            # magnitude of what is passed through.
+            attn = torch.full_like(attn, 1.0 / attn.shape[-1])
         out = (attn @ v).reshape(b, self.dim, h, w)
         return (out, attn) if want_attn else (out, None)
 
@@ -150,14 +169,27 @@ class DinoAca(nn.Module):
         x = self.norm_f(feat)
         xd = self.norm_d(prior)
 
+        intervention = getattr(self, 'aca_intervention', 'none')
+        if intervention not in ('none', 'no_cross', 'uniform_cross'):
+            raise ValueError(f'unknown aca_intervention {intervention!r}')
+        if intervention != 'none' and self.training:
+            raise RuntimeError(
+                f'aca_intervention={intervention!r} is INFERENCE-ONLY and this '
+                f'module is in train() mode. Training an arm with an '
+                f'intervention would be a different experiment and needs its '
+                f'own identity.')
+
         f_sa, attn_sa = self._attend(self.to_q(x), self.to_k(x), self.to_v(x),
                                      self.temperature_sa, collect_stats)
         f_ca, attn_ca = self._attend(self.to_q_cross(x), self.to_k_cross(xd),
                                      self.to_v_cross(xd),
-                                     self.temperature_ca, collect_stats)
+                                     self.temperature_ca, collect_stats,
+                                     uniform=(intervention == 'uniform_cross'))
 
         alpha = torch.sigmoid(self.alpha_logit)
         ca_term = alpha * f_ca                            # the DINO contribution
+        if intervention == 'no_cross':
+            ca_term = torch.zeros_like(ca_term)
         guided = self.project_out(f_sa + ca_term) + feat
 
         stats = {}

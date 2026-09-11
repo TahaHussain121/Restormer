@@ -2704,3 +2704,109 @@ combine under this training recipe"** — NOT "the same ceiling", and no stateme
 about a performance bound. One combined run cannot establish a limit; it can
 only fail to show addition. "Config-only" lowered implementation risk, not
 experimental risk. Full pre-registration in the arm's devlog.
+
+## Step 45 — The ACA question, attacked from both ends: checkpoint interventions and a later location (2026-09-12)
+
+Scoped by the supervisor around three questions: is the trained model actually
+using cross-attention, was ACA placed at the wrong point, and does explicit
+cross-attention add anything over an equally sized self-attention block. Their
+reading of the implementation is correct and is the premise of all of it:
+`DinoAca` is `project_out(F_sa + alpha*F_ca) + F`, **self-attention AND gated
+cross-attention behind one shared output projection**, so every "ACA versus
+addition" number this project has ever reported tests the WHOLE BLOCK, never the
+cross path on its own.
+
+### (a) CHECKPOINT INTERVENTIONS — built and verified, job 1810441 (v100, inference only)
+
+Three conditions on the SAME trained aca-L6 weights (validation-selected
+checkpoint 236,000), validation split, both protocols:
+
+| condition | what changes | question |
+|---|---|---|
+| `none` | nothing | reference, and a bit-exact SELF-CHECK |
+| `no_cross` | `alpha * F_ca` forced to zero, `F_sa` untouched | does the trained model depend on the cross path? |
+| `uniform_cross` | the cross channel-attention matrix replaced by a uniform one, its values `V'` untouched | does the LEARNED mixing matter, given the prior still gets through? |
+
+`uniform_cross` keeps the row sums at 1, as a softmax's are, so only the MIXING
+is removed and not the magnitude of what passes through — which is what makes it
+separable from `no_cross`.
+
+**Implementation.** `dino_aca.py` gains an inference-only `aca_intervention`
+attribute (default `'none'`) and `_attend` gains a `uniform` flag;
+`predict_phase3.py` gains `--aca-intervention`, which REFUSES on an arm with no
+ACA block rather than silently doing nothing, and records the condition in
+`predict_metadata.json`. A guard raises if an intervention is set while the
+module is in `train()` mode — training with one would be a different experiment
+needing its own identity.
+
+**Verified before the job was submitted, because this edits a file five finished
+arms depend on:**
+
+  * the full ACA smoke suite still passes **31/31** with the default, and the
+    default path re-runs bit-exactly, so `'none'` is a strict no-op;
+  * `no_cross` drives `alpha*F_ca` to **exactly** zero;
+  * `uniform_cross` leaves a non-zero cross term, `||uniform|| / ||as-trained||
+    = 1.1532`;
+  * both change the output (max abs 8.1e-02 and 5.0e-02 on a real checkpoint);
+  * the train-mode guard raises.
+
+The job additionally runs a **bit-exact self-check inside the job, on the same
+device**: the `none` predictions are md5-compared against the arm's recorded
+validation predictions, and the sweep aborts if they differ. A CPU rerun would
+differ in the last bits for reasons unrelated to the intervention, which is why
+the check is not done here.
+
+**INTERPRETATION RULES, fixed in advance.** Disabling the cross path hurts but
+uniform mixing does not → the prior information matters and the specific learned
+mixing may contribute little. Both hurt → consistent with the model using both
+the prior and its mixing. Disabling the cross path HELPS → the branch may be
+counterproductive under that evaluation context. **In every case these are
+interventions on a trained model: they establish DEPENDENCE, not how a model
+trained without the component would perform.** That sentence goes next to the
+table wherever it is quoted.
+
+### (b) aca-L6-postlatent — SUBMITTED, job 1810442
+
+The SAME `DinoAca` block, imported not copied, moved after the latent stage.
+Identical parameter count to aca-L6 (the tensor either side of the latent stage
+has the same shape). One factor moves. Smoke **31/31** including the scale check.
+
+It fills the empty cell of a 2x2 that has so far only ever been varied one axis
+at a time (test full256):
+
+| fusion \ location | before latent | after latent |
+|---|---|---|
+| addition, B6 | 24.081 | **24.387** |
+| ACA, B6 | 24.111 | **this arm** |
+
+**THE DECISIVE COMPARISON IS AGAINST postlatent-render, AT THE SAME LOCATION —
+not against the weaker before-latent addition reference.** Comparing it to
+addition-render would let a location gain masquerade as an operator gain, which
+is precisely what the 2x2 exists to prevent.
+
+Registered prediction: it does not beat postlatent-render by more than 0.10 dB
+and still loses on crop128. Outcomes and what each licenses are in the arm's
+devlog. Note the standing confound if it does win: this arm is ~4.6x
+addition-render's added parameters.
+
+### (c) DEFERRED, and conditional — the matched refinement pair
+
+If the question survives (a) and (b), the next design is to PRESERVE the
+successful additive path and let attention refine it: `U = F + P(D)`, then at the
+same post-latent location compare **cross-attention** (queries from `U`, keys and
+values from the projected prior) against a **matched self-attention control**
+(queries, keys and values all from `U`), at equal widths, heads, projection
+structure, parameter count and training budget. That pair is what would isolate
+"specific value from the cross connection" from "more capacity spent on the
+combined features" — which no existing arm can do, because `DinoAca` does not
+preserve a direct additive path. Two full runs; not started. The extra output
+projection would be zero-initialised, and because the additive path lets `P`
+learn immediately it would not reproduce the `aca-L6-nosa` double-zero deadlock
+— but gradient flow would still be verified on a real backward before any run.
+
+### (d) SEQUENCING PRESERVED
+
+`postlatent-B3` (job 1810432) continues untouched; it changes depth under
+additive guidance and answers none of the ACA questions. The agreed wave-3
+location sequence — decoder level 3 at B6, then either dual or hierarchical
+injection — is unchanged and still sits behind its result.
