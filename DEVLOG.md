@@ -2810,3 +2810,92 @@ learn immediately it would not reproduce the `aca-L6-nosa` double-zero deadlock
 additive guidance and answers none of the ACA questions. The agreed wave-3
 location sequence — decoder level 3 at B6, then either dual or hierarchical
 injection — is unchanged and still sits behind its result.
+
+## Step 46 — What the trained ACA block actually uses: the cross path carries the prior, its learned mixing barely matters (2026-09-12)
+
+Job 1810441, v100, inference only. aca-L6 at its validation-selected checkpoint
+(236,000), validation split, n=339, both protocols.
+
+**SELF-CHECK PASSED, and it is load-bearing.** The `none` condition produced
+predictions **bit-identical to the arm's recorded validation predictions,
+339/339 on BOTH protocols**, and its metric reproduces the recorded mean to four
+decimals (full256 24.1949, crop128 22.1040). This is the arm's own computation,
+not a re-implementation that lands nearby.
+
+### The numbers
+
+**full256 / val, n = 339**
+
+| condition | PSNR | delta | 95% CI | worse on | wilcoxon p |
+|---|---|---|---|---|---|
+| none (as trained) | 24.1949 | — | — | — | — |
+| **no_cross** | **17.6790** | **−6.5158** | [−6.808, −6.209] | 337/339 | 2.8e−57 |
+| **uniform_cross** | 24.0486 | **−0.1462** | [−0.186, −0.107] | 234/339 | 3.5e−15 |
+
+**crop128 / val, n = 339**
+
+| condition | PSNR | delta | 95% CI | worse on | wilcoxon p |
+|---|---|---|---|---|---|
+| none (as trained) | 22.1040 | — | — | — | — |
+| **no_cross** | **16.3381** | **−5.7659** | [−6.122, −5.416] | 331/339 | 1.0e−55 |
+| **uniform_cross** | 22.0305 | **−0.0735** | [−0.128, −0.018] | 194/339 | 2.8e−03 |
+
+### (a) Question 1 — is the trained model using cross-attention? YES, overwhelmingly
+
+Zeroing `alpha * F_ca` costs **6.52 dB** on full256 and 5.77 on crop128, and hurts
+**337 of 339** images. The branch is emphatically not vestigial: `alpha` could
+have decayed toward zero over 236,000 iterations and the model could have fallen
+back on plain self-attention, which is the clean negative outcome `dino_aca.py`
+was written to permit. It did not.
+
+**TWO LIMITS ON HOW FAR THAT NUMBER GOES, and they matter.**
+
+  * **It is not "cross-attention is worth 6.5 dB over addition".** In this arm the
+    cross branch is the ONLY route by which the DINO prior reaches the network,
+    so `no_cross` is closer to "delete the prior at inference" than to an
+    operator comparison. For scale: it lands at 17.679, which is **4.40 dB BELOW
+    the no-DINO baseline E0** (22.077 on this split) and 3.48 dB below it on
+    crop128. A model trained without a prior reaches 22.077; a model trained WITH
+    one and then robbed of it at inference reaches 17.679. Those are different
+    quantities and the second is not a performance claim about anything.
+  * `F_sa` and `project_out` were trained with the cross term present, so removing
+    it also shifts the input distribution `project_out` sees. The measurement
+    establishes **dependence**, not the performance of a model trained without
+    the component.
+
+### (b) Question 2 — does the LEARNED channel mixing matter? BARELY
+
+Replacing the cross attention matrix with a uniform one — keeping the learned
+value projections `V'`, so the prior still passes through, and keeping row sums at
+1, so the magnitude is preserved — costs **0.146 dB** on full256 and 0.074 on
+crop128. Both are statistically significant (p = 3.5e−15, 2.8e−03) and both are
+small.
+
+**The comparison that makes the point:** the cross path is worth 6.52 dB to this
+trained model, and **its learned channel mixing accounts for about 2% of that**
+(0.146 of 6.516). Almost all of the branch's value is *delivering the prior at
+all*; almost none of it is *how cleverly the prior is mixed*.
+
+### (c) Why this coheres with Finding 6 rather than contradicting it
+
+aca-L6 beat addition-render by +0.030 dB, p = 0.22, at 4.6x the added
+parameters — a null. These interventions say why that is unsurprising: a
+mechanism whose value is almost entirely "get the prior into the network" is
+doing the job plain addition already does, and the extra machinery that
+distinguishes it — the learned channel mixing — is worth about a seventh of a
+decibel. **The operator is expensive mostly for the part that turns out not to
+matter.**
+
+  This is consistent with, and does not prove, the operator null. The
+  interventions describe one trained model. What settles the operator question
+  at the better location is `aca-L6-postlatent` (job 1810442) against
+  `postlatent-render`, and what would isolate the cross connection itself is the
+  deferred matched refinement pair.
+
+### Pre-registered interpretation, applied
+
+The supervisor's rule was: "disabling cross-attention hurts, but uniform mixing
+does not → prior information matters; the specific learned mixing may contribute
+little." **That is the case observed, with one refinement: uniform mixing does
+hurt, significantly, but by roughly 2% of what the path is worth.** Reported as
+"small but non-zero", not as "does not matter".
