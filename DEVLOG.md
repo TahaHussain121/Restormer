@@ -2559,3 +2559,44 @@ of THESIS_STORY; Q6 and Q6a; chapter §4.5 (injection point), §6.8 and §7.2a (
 depth reading), §7.5, §9 ("one injection point" is no longer a limitation), §10
 (conclusion). Findings 1 (source), 2 (spatial), 6 (operator, now including the
 gate) and 7 (protocol split, now with a first additive-family member) stand.
+
+## Step 43 — B9 alone: the last wave-2 arm, and what the AFFM weights were NOT telling us (2026-09-11)
+
+B9 finished 300k (chain count 2, no stability failure), selected on validation
+at **236,000 (val 24.2425, top-5 spread 0.064)**, evaluated on both splits and
+protocols (jobs 1810420-1810423).
+
+**Test, n = 338:** full256 **24.140**, crop128 22.176, object PSNR 19.843,
+SSIM 0.8236. Validation full256 24.247.
+
+| B9 alone minus | val full256 | test full256 | test crop128 |
+|---|---|---|---|
+| B6 (addition-render) | +0.127 (p=0.035) | +0.059 (p=0.095) | −0.083 (0.25) |
+| B3 alone | −0.104 (p=0.30) | **−0.168 (p=0.032)** | −0.077 (0.64) |
+| affm {3,6,9} | −0.136 (p=0.079) | **−0.195 (p=5.7e-04)** | −0.140 (0.11) |
+
+**Reading.** B9 over B6 does not replicate: significant on validation, not on
+test. Report it as unresolved, not as a gain. B3 beats B9 on test. So the
+single-depth ordering on restoration is **B3 first; B9 and B6 not separable.**
+Pre-registered prediction (within 0.10 of B6): +0.059 on test — **correct**
+(val +0.127 is marginally outside).
+
+**What this does to the AFFM-weight evidence, stated plainly.** The learned AFFM
+weights gave B9 the LARGEST share in both the three- and four-depth arms (0.481,
+0.326) and B3 the smallest or near-smallest (0.237, 0.216; 0.153 in {3,6}). On
+restoration quality as a single depth, **B3 is the best and B9 is no better than
+B6. The learned weights anti-predict which single depth restores best.** They
+describe what the fused prior leans on inside a softmax mixture, not which depth
+is most useful on its own, and should not be cited as evidence about depth
+quality — which is how THESIS_STORY Q6a used them ("B6 has the tightest
+weight").
+
+**Which earlier feature-space criterion picked the winner.** Phase 1/2 ranked
+depths two ways at the training scale (WO1 Task 1.3). Raw same-scene
+correspondence: B6 > B3 > B9 — wrong about the winner. Same-vs-different-scene
+ADVANTAGE: **B3 (+0.197) > B6 (+0.145) > B9 (+0.125) — right about the winner**,
+with the B6/B9 order inside restoration noise. Phase 2's interpretation had
+called the advantage "the one to trust". It was.
+
+**Scorecard, wave 2 complete:** gated-render correct, gated-noisy wrong,
+postlatent wrong (sign reversed), B3 wrong, B9 correct. Two of five.

@@ -25,6 +25,11 @@ complete.** Only priorquery-render (dropped at 90k) has no numbers.
 >   not close. Finding 1 (source) gets stronger; Finding 6 (operator) extends to
 >   selection.
 >
+> * **B9 alone (Step 43):** +0.059 over B6 on test (n.s.), −0.168 vs B3 (p=0.032).
+>   Restoration order: B3 first, B9 and B6 not separable. The AFFM weights gave
+>   B9 the LARGEST share and B3 the smallest — they anti-predict single-depth
+>   quality. Do not cite AFFM weights as evidence about which depth is best.
+>
 > Findings 1, 2, 6 and 7 stand. The "one sentence", the "ending", Q6 and Q6a need
 > rewriting.
 
