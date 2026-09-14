@@ -2603,7 +2603,7 @@ postlatent wrong (sign reversed), B3 wrong, B9 correct. Two of five.
 
 ## Step 44 — Wave 3 scoped down, three claims of mine corrected, and the stacking arm submitted (2026-09-11)
 
-Wave 3 was proposed as five arms and **narrowed to a sequence by the supervisor**.
+Wave 3 was proposed as five arms and **narrowed to a sequence in a ChatGPT-assisted design review, relayed and accepted by the author**.
 Their scoping and their corrections are adopted in full and recorded here
 because two of the corrections are errors in my own reasoning, one of which is
 contradicted by this repo's own notes.
@@ -2644,7 +2644,7 @@ two regimes also does not by itself guarantee crop/full feature consistency.
 
 ### (b) AN OBSERVATION THAT MAY EXPLAIN THE WHOLE +0.25 TIER
 
-Raised by the supervisor from post-latent's numbers and checked across the tier.
+Raised in the ChatGPT-assisted review from post-latent's numbers and checked across the tier.
 Against addition-render, on test:
 
 | arm | full256 | crop128 |
@@ -2698,7 +2698,7 @@ the existing B3 means, **parameter count identical to addition-render's**, smoke
 addition-render and will not be reported as one; its references are its two
 constituents.
 
-**The reporting rule for a null is fixed in advance**, in the supervisor's
+**The reporting rule for a null is fixed in advance**, in the ChatGPT review's
 words: if it does not beat both constituents, write **"the improvements did not
 combine under this training recipe"** — NOT "the same ceiling", and no statement
 about a performance bound. One combined run cannot establish a limit; it can
@@ -2707,7 +2707,7 @@ experimental risk. Full pre-registration in the arm's devlog.
 
 ## Step 45 — The ACA question, attacked from both ends: checkpoint interventions and a later location (2026-09-12)
 
-Scoped by the supervisor around three questions: is the trained model actually
+Scoped in a ChatGPT-assisted design review, accepted by the author, around three questions: is the trained model actually
 using cross-attention, was ACA placed at the wrong point, and does explicit
 cross-attention add anything over an equally sized self-attention block. Their
 reading of the implementation is correct and is the premise of all of it:
@@ -2811,7 +2811,7 @@ additive guidance and answers none of the ACA questions. The agreed wave-3
 location sequence — decoder level 3 at B6, then either dual or hierarchical
 injection — is unchanged and still sits behind its result.
 
-## Step 46 — What the trained ACA block actually uses: the cross path carries the prior, its learned mixing barely matters (2026-09-12)
+## Step 46 — What the trained ACA block actually uses: strong dependence on the cross path, a smaller cost from uniform mixing (2026-09-12)
 
 Job 1810441, v100, inference only. aca-L6 at its validation-selected checkpoint
 (236,000), validation split, n=339, both protocols.
@@ -2863,7 +2863,7 @@ was written to permit. It did not.
     establishes **dependence**, not the performance of a model trained without
     the component.
 
-### (b) Question 2 — does the LEARNED channel mixing matter? BARELY
+### (b) Question 2 — does the LEARNED channel mixing matter? MEASURABLY, and much less than the branch
 
 Replacing the cross attention matrix with a uniform one — keeping the learned
 value projections `V'`, so the prior still passes through, and keeping row sums at
@@ -2871,20 +2871,27 @@ value projections `V'`, so the prior still passes through, and keeping row sums 
 crop128. Both are statistically significant (p = 3.5e−15, 2.8e−03) and both are
 small.
 
-**The comparison that makes the point:** the cross path is worth 6.52 dB to this
-trained model, and **its learned channel mixing accounts for about 2% of that**
-(0.146 of 6.516). Almost all of the branch's value is *delivering the prior at
-all*; almost none of it is *how cleverly the prior is mixed*.
+**The supported statement, and only this:** the trained model depends strongly
+on the cross branch, and making that branch's channel mixing uniform causes a
+smaller, measurable degradation than removing the branch.
+
+**The two drops are NOT to be divided into a percentage contribution.** PSNR
+differences are log-ratios of MSE, and interventions on a trained model do not
+decompose its performance into independent parts; `no_cross` also leaves the
+model outside anything it was trained on (below E0), so its drop is not "the
+value" of the branch. An earlier version of this paragraph did divide them
+("about 2%"); that figure is WITHDRAWN (Step 47). Nor does this bound what a
+differently placed or differently trained ACA could contribute.
 
 ### (c) Why this coheres with Finding 6 rather than contradicting it
 
-aca-L6 beat addition-render by +0.030 dB, p = 0.22, at 4.6x the added
-parameters — a null. These interventions say why that is unsurprising: a
-mechanism whose value is almost entirely "get the prior into the network" is
-doing the job plain addition already does, and the extra machinery that
-distinguishes it — the learned channel mixing — is worth about a seventh of a
-decibel. **The operator is expensive mostly for the part that turns out not to
-matter.**
+aca-L6 beat addition-render by +0.030 dB, p = 0.22 — a null, at 4.6x the ADDED
+parameters (about 4% more TOTAL trainable parameters; see Step 47). The
+interventions are consistent with that: the trained model leans heavily on the
+branch that delivers the prior, and less on how the branch mixes it, and
+delivering the prior is also what plain addition does. That is a consistency,
+not an explanation, and it does not show that the mixing is worthless in a
+model trained differently.
 
   This is consistent with, and does not prove, the operator null. The
   interventions describe one trained model. What settles the operator question
@@ -2894,8 +2901,101 @@ matter.**
 
 ### Pre-registered interpretation, applied
 
-The supervisor's rule was: "disabling cross-attention hurts, but uniform mixing
+The rule set in the ChatGPT-assisted review was: "disabling cross-attention hurts, but uniform mixing
 does not → prior information matters; the specific learned mixing may contribute
-little." **That is the case observed, with one refinement: uniform mixing does
-hurt, significantly, but by roughly 2% of what the path is worth.** Reported as
+little." **That is close to the case observed, with one refinement: uniform mixing
+does hurt, significantly, and by much less than removing the branch.** Reported as
 "small but non-zero", not as "does not matter".
+
+## Step 47 — Provenance and precision corrections to Steps 44-46, and the rules for closing the study (2026-09-14)
+
+A ChatGPT-assisted review of Steps 44-46, relayed by the author, found errors in
+my records. Each is corrected IN PLACE in those steps (so a reader quoting them
+does not propagate the error) and recorded here.
+
+### (a) PROVENANCE — the reviews were ChatGPT's, not the supervisor's
+
+Steps 44, 45 and 46 attributed five things to "the supervisor": the narrowing of
+wave 3 to a sequence, the tier observation, the null-reporting rule, the scoping
+of the ACA questions, and the intervention interpretation rule. **All five came
+from ChatGPT-assisted design reviews that the author relayed and accepted.** The
+wording now says so. **No record in this repository implies supervisor approval
+of any wave-3 or ACA-branch design.** The separate, older statement that the
+supervisor specified a DINO prior (THESIS_STORY, "SCOPE DECISIONS") comes from
+the author's own handover prompt and is the author's claim; it is unchanged.
+
+### (b) WITHDRAWN — "the learned mixing is about 2% of the cross path's value"
+
+Step 46 divided the uniform-mixing drop (0.146 dB) by the no-cross drop
+(6.516 dB). That is not a contribution percentage: PSNR differences are
+log-ratios of MSE, interventions on a trained model do not decompose performance
+into independent parts, and the no-cross condition leaves the model outside
+anything it was trained on (4.40 dB below E0). **The supported statement is only:
+the trained model depends strongly on the cross branch, and uniform channel
+mixing causes a smaller, measurable degradation than removing it.** It places no
+upper limit on what a differently placed or differently trained ACA could
+contribute. The same division appears in the message of commit e001bc9, which
+cannot be amended; this step supersedes it.
+
+### (c) PARAMETER RATIOS MUST NAME THEIR DENOMINATOR — a project-wide fix
+
+"4.6x the parameters" is an ADDED-parameter ratio. Against the 26,124,052-
+parameter trunk, in TOTAL trainable parameters (frozen DINO excluded from both):
+
+| arm | total trainable | vs addition-render |
+|---|---|---|
+| addition-render | 26,419,348 | — |
+| aca-L6 | 27,473,825 | **+3.99%** total (4.57x added) |
+| dinolight-render | 27,476,901 | +4.00% total |
+| multi-level addition (proposed) | 26,640,820 | +0.84% total |
+| multi-level ACA (proposed) | 28,034,587 | +6.11% total; **+5.2% over multi-level addition** (3.70x added) |
+
+The phrase occurs 12 times in THESIS_STORY, 6 in PHASE3_CHAPTER, 2 in HANDOVER
+and 2 in the published results grid, always without a denominator. Each must say
+"added parameters", and the capacity argument should be restated with both
+figures: the attention arms roughly quadruple what the prior branch adds, which
+is about 4% of the network. That weakens nothing in Finding 6 — a null at +4%
+total capacity is still a null — but "4.6x the parameters" overstates the
+network-size difference by two orders of magnitude and must not be quoted. Runtime
+and memory cannot be read from either ratio. A banner line in THESIS_STORY now
+flags it for the rewrite.
+
+### (d) THE STACKING VERDICT — precise wording, and the pre-registration left untouched
+
+Three of four cells were in when I wrote, in conversation, that the record would
+read "the improvements did not combine". That was premature and overstrong: the
+crop-test cell was still queued, and a test point estimate of **+0.094 dB**
+(p = 0.022, 95% CI [−0.004, +0.190]) is a positive observation just 0.006 dB
+under a registered +0.10 threshold, not evidence of no combination. When all four
+cells are in, the verdict will separate:
+
+  * the OBSERVED additional gain (the paired mean, per split and protocol);
+  * whether it is RELIABLE (the paired interval, and cross-split replication —
+    the project's standing substitute for seeds; validation read +0.002);
+  * whether it EXCEEDS the registered practical threshold.
+
+If warranted the wording is **"the combination did not demonstrate an additional
+improvement exceeding the registered threshold."** The arm's pre-registration is
+NOT edited — changing a registered rule after seeing results would defeat its
+purpose — so this refinement is recorded here, and the verdict step will cite it.
+
+### (e) BEFORE ANY FINAL MULTI-LEVEL RUN IS FUNDED
+
+The proposed final pair (multi-level addition and multi-level ACA at the same
+three B6 locations) is not approved; it is to be decided once, after the ACA
+post-latent evaluation completes. If funded, two things are fixed first:
+
+  * **"Clear improvement" is defined in advance** — the primary metric, the
+    practical threshold, the paired-uncertainty requirement, cross-split
+    replication, and how a full-frame gain with a crop128 penalty is reported.
+  * **Every injection site is monitored**, not one: non-finite checks at all three
+    sites, and each site's own norms and ratio recorded. The post-latent ratio
+    rule stays the one the gate enforces, so it remains comparable with the
+    single-site arm, but one monitored site cannot certify the other two.
+
+The expectation to register, as a hypothesis and not a mechanism claim: limited
+incremental benefit, because the decoder stages receive the same prior again;
+repeated delivery can still change how easily those stages use it, which is
+exactly what the pair would test. And a loss for single-location ACA would
+LOWER the expectation for multi-level ACA without ANSWERING it — the two arms ask
+different questions.

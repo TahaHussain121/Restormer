@@ -41,6 +41,12 @@ complete.** Only priorquery-render (dropped at 90k) has no numbers.
 >   ONE injection point where the paper uses every scale, so it is a partial
 >   adaptation, as its own devlog records.
 >
+> * **"4.6x the parameters" (12 times in this file) is an ADDED-parameter ratio.**
+>   In total trainable parameters aca-L6 is +3.99% over addition-render. Every
+>   occurrence must name its denominator ("4.6x the added parameters, ~4% of the
+>   network"). Finding 6 survives: a null at +4% total capacity is still a null.
+>   DEVLOG Step 47.
+>
 > Findings 1, 2, 6 and 7 stand. The "one sentence", the "ending", Q6 and Q6a need
 > rewriting.
 
