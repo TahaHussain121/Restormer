@@ -1,0 +1,29 @@
+# Holo_E0_frozen_noisy_output_residual_refiner -- ONE bounded run.
+# Fixed in advance (ChatGPT-assisted proposal, authorised by the author). Frozen
+# once training starts: any change needs a new identity, never an edit.
+
+name: Holo_E0_frozen_noisy_output_residual_refiner
+frozen_base: Holo_E0_fixed128_baseline      # validation-selected checkpoint, resolved from metadata
+protocol: full256                            # E0 on whole 256x256 frames; refiner trains and evaluates on whole frames
+inputs: [noisy_X, E0_output_Y0]              # X first. No render, no DINO, no target-derived input.
+
+seed: 100
+optimizer: AdamW
+lr: 1.0e-4
+lr_min: 1.0e-6
+betas: [0.9, 0.999]
+weight_decay: 1.0e-4
+batch_size: 16                                # physical; no accumulation unless it does not fit
+grad_accum_steps: 1
+max_updates: 10000
+grad_clip_norm: 1.0
+precision: float32                            # TF32 disabled explicitly
+scheduler: cosine, 1e-4 -> 1e-6 over 10000 updates, no warmup
+loss: L1 on the UNBOUNDED Y0 + delta
+augmentation: none
+drop_last: true                               # 6101 train frames -> 381 batches of 16 per epoch
+
+val_every: 500
+min_updates: 3000
+patience_checks: 5                            # stop when 5 consecutive checks fail to improve the best, once >= 3000 updates
+selection_metric: mean full256 PSNR, uint16 convention (clamp, *65535, round; skimage data_range 1.0)
