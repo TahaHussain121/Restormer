@@ -3119,3 +3119,39 @@ corrected in place. **The same inaccurate sentence remains in a code comment in
 left unedited because the brief forbids changing shared implementations used by
 existing experiments; it is a comment with no behavioural effect, and is flagged
 here for a later authorised fix.
+
+## Step 49 — Both integration smokes pass; submission gated on the queued evaluations (2026-09-14)
+
+Bounded real-data runs through `basicsr/train.py`, 2,000 iterations each,
+throwaway `SMOKE2K_*` identities, a100:
+
+| | A: multi-level addition (1812529) | B: multi-level ACA (1812530) |
+|---|---|---|
+| exit | rc 0, 17m41s | rc 0, 18m07s |
+| in-loop eval256 validation, 339 frames | ran at 1k and 2k | ran at 1k and 2k |
+| stability failures | none | none |
+| checkpoint at 2,000 | written | written |
+| every site finite, every logged step | yes | yes |
+| post-latent gate ratio at 500 / 1k / 1.5k / 2k | 0.93 / 0.69 / 0.75 / 0.79 | 0.35 / 0.26 / 0.21 / 0.19 |
+| site ratios at 2k, pl / d3 / d2 | 0.79 / 1.06 / 1.26 | 0.23 / 0.48 / 0.62 |
+| ACA alpha at 2k, pl / d3 / d2 | — | 0.121 / 0.121 / 0.123 (init 0.119) |
+
+**Observations only, no conclusions.** The additive arm's update at the two
+decoder sites already exceeds the stage feature in norm by 2k iterations (1.06
+and 1.26), rising with resolution; the post-latent site sits near the level the
+single-site additive arm reached (~1.0). This is recorded because the gate's
+ratio rule only watches the post-latent site; the decoder sites have no rule and
+none is invented, but their trajectories will be reported. The ACA gates have
+barely left their initial value in 2k iterations, as expected.
+
+The validation PSNR at 1k and 2k (about 20.1 and 20.6 for both) is a smoke
+artefact of a 2k-iteration run and is not to be quoted or compared with anything.
+
+Throughput is ~0.45 s/iteration in the logs, consistent with the ~39 h of the
+earlier single-site arms: two chained 24 h jobs per arm.
+
+**Submission.** The brief requires the preceding evaluations to finish first.
+All five remaining cells (1812371-1812375) are still queued on v100. A persistent
+watcher submits both chains automatically once those jobs leave the queue, and
+ONLY if all five report `EVAL DONE`; if any does not, it submits nothing and
+reports which. It also refuses if either chain's state directory already exists.
