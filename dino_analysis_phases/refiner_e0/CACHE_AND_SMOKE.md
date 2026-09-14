@@ -51,4 +51,10 @@ Test is cached only at evaluation, after selection.
 | E0 after backward | eval, no grad, no `.grad`, digest unchanged |
 | batch 16 | fits physically: peak 1.01 GiB, 174 ms/update on v100 including host loading. No accumulation needed |
 
-Training submitted as job **1813124** (rtx3080).
+Training was first submitted as job 1813124 (rtx3080). It was still pending
+when, at the author's request, it was **cancelled before starting** and
+resubmitted as job **1813217 on v100** (same script, same 4 h limit; partition
+and GPU overridden on the command line). Hardware only: float32 is enforced in
+code and V100 has no TF32, so the experiment definition is unchanged. The
+pre-registration's "GPU: rtx3080" line is therefore superseded here, not
+edited. There is one training run.
