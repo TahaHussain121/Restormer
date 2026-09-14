@@ -2727,9 +2727,12 @@ checkpoint 236,000), validation split, both protocols:
 | `no_cross` | `alpha * F_ca` forced to zero, `F_sa` untouched | does the trained model depend on the cross path? |
 | `uniform_cross` | the cross channel-attention matrix replaced by a uniform one, its values `V'` untouched | does the LEARNED mixing matter, given the prior still gets through? |
 
-`uniform_cross` keeps the row sums at 1, as a softmax's are, so only the MIXING
-is removed and not the magnitude of what passes through — which is what makes it
-separable from `no_cross`.
+`uniform_cross` keeps the row sums at 1, as a softmax's are. **That does NOT
+preserve the output magnitude** (corrected 2026-09-14, Step 48): averaging the
+value channels changes the norm, and on the trained checkpoint the uniform cross
+term measured 1.153x the as-trained one (below). What it removes is the learned
+selectivity of the mixing; it remains distinct from `no_cross`, which removes
+the term entirely.
 
 **Implementation.** `dino_aca.py` gains an inference-only `aca_intervention`
 attribute (default `'none'`) and `_attend` gains a `uniform` flag;
@@ -2866,8 +2869,9 @@ was written to permit. It did not.
 ### (b) Question 2 — does the LEARNED channel mixing matter? MEASURABLY, and much less than the branch
 
 Replacing the cross attention matrix with a uniform one — keeping the learned
-value projections `V'`, so the prior still passes through, and keeping row sums at
-1, so the magnitude is preserved — costs **0.146 dB** on full256 and 0.074 on
+value projections `V'`, so the prior still passes through (row sums stay 1, but
+that does NOT preserve magnitude: the term measured 1.153x the trained one) —
+costs **0.146 dB** on full256 and 0.074 on
 crop128. Both are statistically significant (p = 3.5e−15, 2.8e−03) and both are
 small.
 
@@ -2999,3 +3003,119 @@ repeated delivery can still change how easily those stages use it, which is
 exactly what the pair would test. And a loss for single-location ACA would
 LOWER the expectation for multi-level ACA without ANSWERING it — the two arms ask
 different questions.
+
+## Step 48 — The two FINAL experiments: implemented, verified, integration-smoked (2026-09-14)
+
+**Authorisation.** The author authorised exactly two final training runs — a
+matched pair of fusion operators across two injection layouts — to close the
+architecture-training study. The brief was drafted in a ChatGPT-assisted design
+discussion and accepted by the author. No further training arms follow.
+
+|  | post-latent only | post-latent + decoder 3 + decoder 2 |
+|---|---|---|
+| addition, B6 | postlatent-render (done) | **A: `Holo_multilevel_addition_render_fixed128_B6`** |
+| ACA, B6 | aca-L6-postlatent (evaluation queued) | **B: `Holo_multilevel_aca_render_fixed128_B6`** |
+
+B's submission is explicitly NOT conditional on how aca-L6-postlatent scores.
+
+### State check, before anything was built
+
+  * **Evaluations of the two preceding arms:** 3 of 8 cells complete; 5
+    (postlatent-B3 crop128/test and all four aca-L6-postlatent cells) queued on
+    v100 as jobs 1812371-1812375. They own their evaluations and were NOT
+    duplicated; a passive watcher follows them. No partial result is used to
+    choose anything.
+  * **No equivalent work exists** under any name: no multi-level or
+    decoder-injection experiment directory, config or architecture.
+  * **Disk:** `/home/woody` at 735.9 GB of a 1000 GB soft quota (1500 hard).
+    The two arms will add roughly 45-47 GB each, to about 830 GB. No deletion is
+    needed, and none was done.
+
+### Implementation — isolated, no shared implementation touched
+
+  * `basicsr/models/archs/dino_multilevel.py` — the layout, the
+    nearest-neighbour expansion (shape-checked, refuses to broadcast), and the
+    per-site monitoring. Not an `*_arch.py`, so outside the registry.
+  * `restormer_multilevel_addition_render_arch.py` — subclasses
+    `RestormerPostLatentRender`; adds `P_dec3` 768->192 and `P_dec2` 768->96,
+    zero weight and bias, in an RNG fence.
+  * `restormer_multilevel_aca_render_arch.py` — subclasses
+    `RestormerAcaL6PostLatentRender`; adds the same two projections and two
+    independent `DinoAca` instances at widths 192 and 96 (6 heads, alpha logit
+    −2, zero-init `project_out`, trunk bias and LayerNorm conventions), in an RNG
+    fence. `DinoAca` is imported, not copied.
+  * Configs, chain scripts and pre-registration devlogs for both, derived from
+    the two single-site references by changing only name, class and
+    `dino_injection: 'post_latent+dec3+dec2'`.
+
+**The layout.** The centred B6 render prior is extracted ONCE per input and
+reused. Site pl after the latent blocks at the native grid; site d3 at the input
+of decoder level 3 and site d2 at the input of decoder level 2, both AFTER skip
+concatenation and channel reduction. No pre-latent and no decoder-level-1
+injection. **The decoder sites receive the prior by NEAREST-NEIGHBOUR
+upsampling** (2x, 4x) of each stage's projection applied at the native grid — a
+new mapping, documented as such; the original no-resizing condition does not
+hold there, and matching expansion factors across regimes does not prove
+crop/full invariance.
+
+**Monitoring.** The stability gate keeps its three keys at the post-latent site,
+exactly as each single-site reference measures them. All three sites are
+recorded separately — feature norm, update norm, ratio, finiteness (plus
+||alpha·F_ca|| for ACA) — both as logged observations and inside
+`last_dino_stats`, so any stability record names the site. Any non-finite value
+at a site propagates to the loss, where the unwindowed NaN rule stops the run.
+No new ratio threshold was invented for the decoder sites.
+
+### Verification — `smoke_tests_multilevel.py`, real data, CPU
+
+CPU because a100 TF32 has previously broken exact step-0 equality spuriously.
+
+| check | A (addition) | B (ACA) |
+|---|---|---|
+| result | **42/42** | **48/48** |
+| added trainable | +516,768 (expected) | +1,910,535 (expected) |
+| total trainable | 26,640,820 | 28,034,587 |
+| frozen DINO, separate | 86,580,480 | 86,580,480 |
+| trunk vs E0 (seed 100) | 494/494 identical | 494/494 identical |
+| step-0 output vs E0, real crops | max dev 0.0 | max dev 0.0 |
+| DINO extractions per forward | 1 (train128), 1 (eval256) | 1, 1 |
+| shapes train128 pl / d3 / d2 | 384x16² / 192x32² / 96x64² | same |
+| shapes eval256 pl / d3 / d2 | 384x32² / 192x64² / 96x128² | same |
+| decoder mapping | exact NN replication, on non-zero projections | same |
+
+**Learning, on a real multi-step backward with the recipe's AdamW:**
+
+  * A: every projection has non-zero gradient on the FIRST backward (P 9.3e-03,
+    P_dec3 5.2e-02, P_dec2 3.2e-01). No staircase.
+  * B, the three-step staircase, verified at EACH stage separately:
+
+| stage | step 1: only project_out | step 2: P and feature path | step 3 |
+|---|---|---|---|
+| pl (384) | project_out 5.0e-05, P = alpha = 0 | P 5.7e-04 | every group live |
+| d3 (192) | project_out 5.3e-04, P = alpha = 0 | P 1.3e-03 | every group live |
+| d2 (96) | project_out 3.4e-03, P = alpha = 0 | P 1.3e-02 | every group live |
+
+No dead branch at any stage; the `aca-L6-nosa` double-zero deadlock does not
+recur, because the self-attention path keeps each `project_out` live from step 1.
+
+### Integration smoke — submitted
+
+Bounded real-data runs through `basicsr/train.py`, 2,000 iterations, throwaway
+`SMOKE2K_*` identities, validation on all 339 full frames at 1k and 2k, a100:
+jobs **1812529** (A) and **1812530** (B). The gate's ratio rules start at 5,000
+by design, so in 2,000 iterations they are measured, not enforced; the NaN rule
+is active from iteration 1.
+
+**The two training chains are NOT yet submitted.** Per the brief they wait for
+the integration smokes and for the five queued evaluation cells.
+
+### A correction made while implementing
+
+The brief's interpretation rules state that uniform attention does **not**
+preserve output magnitude. Steps 45 and 46 said it did, contradicting their own
+measurement (the uniform cross term was 1.153x the trained one). Both are
+corrected in place. **The same inaccurate sentence remains in a code comment in
+`basicsr/models/archs/dino_aca.py`** (in `_attend`, the `uniform` branch). It is
+left unedited because the brief forbids changing shared implementations used by
+existing experiments; it is a comment with no behavioural effect, and is flagged
+here for a later authorised fix.
