@@ -3155,3 +3155,99 @@ All five remaining cells (1812371-1812375) are still queued on v100. A persisten
 watcher submits both chains automatically once those jobs leave the queue, and
 ONLY if all five report `EVAL DONE`; if any does not, it submits nothing and
 reports which. It also refuses if either chain's state directory already exists.
+
+## Step 50 — The two preceding arms, fully evaluated: stacking is sub-additive, and ACA loses to addition at the post-latent location (2026-09-14)
+
+All eight cells of the two wave-3 arms are in (jobs 1812368-1812375, every one
+`EVAL DONE`). Both arms are 2x2 designs with an existing arm in each other cell,
+so each is analysed with `final_matched_pair.py` as a 2x2 rather than as loose
+pairwise tests. Outputs: `results/comparisons/stacking_2x2.json` and
+`results/comparisons/aca_location_2x2.json`.
+
+### (a) postlatent-B3 — depth x location
+
+Test full256 cells: B6-before 24.081 · B6-after 24.387 · B3-before 24.309 ·
+**B3-after 24.480**.
+
+| comparison | test full256 | 95% CI | p | val full256 | test crop128 |
+|---|---|---|---|---|---|
+| B3-after − B6-after (the better constituent) | **+0.094** | [−0.004, +0.190] | 0.022 | +0.002 (p=0.79) | −0.055 |
+| B3-after − B3-before (the other constituent) | +0.172 | [+0.057, +0.284] | 0.0065 | +0.084 (n.s.) | −0.041 |
+| interaction (B3 location gain − B6 location gain) | **−0.134** | [−0.257, −0.003] | 0.024 | **−0.229** (p=2.6e-4) | −0.049 |
+
+**Verdict, with the three fields kept separate** (Step 47):
+
+  * OBSERVED against the better constituent: **+0.094 dB**.
+  * RELIABLE: **no** — the interval includes zero and validation reads +0.002.
+  * EXCEEDS the +0.10 threshold: **no**.
+
+**Wording of record: "the combination did not demonstrate an additional
+improvement exceeding the registered threshold."** Not "did not combine", and no
+statement about a limit. The arm's pre-registered prediction (it would not beat
+post-latent B6 by more than 0.10 dB) held.
+
+**What IS reliable is the interaction, and it is negative on both splits.**
+Moving the injection after the latent stage is worth +0.306 at B6 but only
++0.172 at B3: the two changes are SUB-ADDITIVE. Their gains overlap.
+
+B3-after's 24.480 is the highest single test number in the study, and it is
+**not a new best**: it is not reliably separable from post-latent B6. No crop128
+trade-off anywhere in this 2x2.
+
+### (b) aca-L6-postlatent — operator x location
+
+Test full256 cells: addition-before 24.081 · **addition-after 24.387** ·
+ACA-before 24.111 · ACA-after 24.139.
+
+| comparison | test full256 | 95% CI | p | val full256 | test crop128 |
+|---|---|---|---|---|---|
+| ACA-after − ACA-before (location, for ACA) | +0.028 | [−0.088, +0.140] | 0.74 | +0.101 (p=0.07) | +0.044 |
+| **ACA-after − addition-after (operator, same location)** | **−0.247** | [−0.356, −0.142] | **2.8e−05** | **−0.138** (p=0.027) | **−0.268** |
+| interaction (ACA location gain − addition location gain) | **−0.277** | [−0.414, −0.141] | 1.6e−06 | **−0.213** (p=1.3e−3) | +0.036 |
+
+**Reading.**
+
+  * Moving the ACA block after the latent stage does **not reliably help it**
+    (+0.028 on test, n.s.).
+  * **At the post-latent location, the ACA block is significantly WORSE than plain
+    addition** — −0.247 dB on test, replicated on validation (−0.138), and worse
+    on crop128 as well (−0.268). This is the decisive comparison the arm was built
+    for, and it is reliable on every criterion.
+  * The interaction is significant and replicated: addition gains 0.28 dB more
+    from the later location than ACA does.
+
+**Capacity, with its denominator.** ACA-after has 4.57x addition-after's ADDED
+parameters but only **+3.99% of TOTAL trainable parameters**. A loss at slightly
+more capacity cannot be attributed to having too little.
+
+**What this does to Finding 6.** At the pre-latent location the operator
+comparison was a null (+0.030, p=0.22). At the post-latent location it is a
+significant, replicated deficit for ACA. So the operator's effect DEPENDS ON
+LOCATION, and where it is measurable, addition wins. The claim concerns the
+tested ACA BLOCK (self-attention + gated channel cross-attention + shared output
+projection), not cross-attention in isolation.
+
+The arm's pre-registered prediction (it would not beat post-latent addition by
+more than 0.10 dB and would still lose on crop128) held, and the outcome is
+stronger than predicted: it loses on the full frame as well.
+
+**This does not change the final pair.** Experiment B's submission was specified
+as not conditional on this result; a single-location loss lowers the expectation
+for multi-level ACA without answering whether repeated access changes it.
+
+### Submission record — the two final chains
+
+The gate set in Step 49 was met: all five queued cells reported `EVAL DONE`, and
+neither final experiment had a pre-existing chain state or experiment
+directory. The persistent watcher then submitted both chains on a100 at
+2026-09-14 14:36:23:
+
+| experiment | first job | successor |
+|---|---|---|
+| A `Holo_multilevel_addition_render_fixed128_B6` | **1812561** | 1812563 |
+| B `Holo_multilevel_aca_render_fixed128_B6` | **1812562** | 1812564 |
+
+Both started immediately. Expected about 39 h each across two chained jobs.
+Afterwards, per the brief: validation-only checkpoint selection, both protocols
+on validation and test, the four-cell comparison with A-D, and a final
+recommendation. No further training arm follows.
