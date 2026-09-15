@@ -59,7 +59,8 @@ def main():
     check('fresh refiner == refiner_e0 initial weights to float32 rounding (seed 100), '
           'not its trained weights', max(diffs.values()) <= 1e-6 and count_params(net) == EXPECTED_PARAMS,
           f'{count_params(net):,} params; {n_exact}/{len(old0)} tensors bit-identical, max abs diff '
-          f'{max(diffs.values()):.2e} (trained refiner_e0 weights differ from step 0 by ~1e-2)')
+          f'{max(diffs.values()):.2e} (for scale: refiner_e0 at update 6000 differs from its step 0 by a '
+          f'per-tensor max of 3.2e-05 to 0.19, median 4.9e-02, measured 2026-09-15)')
 
     # --- region loss -----------------------------------------------------------
     g = torch.zeros(4, 1, 8, 8)
