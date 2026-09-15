@@ -3251,3 +3251,129 @@ Both started immediately. Expected about 39 h each across two chained jobs.
 Afterwards, per the brief: validation-only checkpoint selection, both protocols
 on validation and test, the four-cell comparison with A-D, and a final
 recommendation. No further training arm follows.
+
+## Step 51 — A radar-only residual refiner on the frozen E0: a full-frame gain that comes from darkening, and no recovery of weak structure (2026-09-15)
+
+**Outside the DINO study.** One isolated curiosity experiment,
+`Holo_E0_frozen_noisy_output_residual_refiner`, proposed in a **ChatGPT-assisted
+discussion** and authorised by the author as one implementation plus one
+training run, no sweep. It does not touch the two final chains (1812561/2),
+which keep running. Code, pre-registration, fixed cases and smoke record:
+`dino_analysis_phases/refiner_e0/` (commits bc0bf7c, 2c1c36e, ac9902d, all
+before any result).
+
+### What was run
+
+`Y = Y0 + Refiner([X, Y0])`: X the noisy 1e5 frame, Y0 the output of the
+**frozen** E0-Fixed baseline (checkpoint 268,000 from its recorded validation
+selection, md5-checked). No render, no DINO, no target-derived input; E0 never
+trained. The refiner is a fixed small U-Net (2→16→32→64, bilinear decoder,
+zero-initialised signed 1x1 output), **118,129 trainable parameters = 0.45% of
+E0's 26,124,052** (denominator: E0's total trainable parameters). Full 256x256
+frames throughout; E0's raw float32 full-frame outputs cached before clamping.
+L1 on the unbounded output, AdamW 1e-4 cosine to 1e-6, batch 16, grad clip 1.0,
+float32 with TF32 off, seed 100, validation every 500 updates on all 339 frames,
+selection on validation full256 PSNR (uint16 convention).
+
+* **Cache**: job 1813080 (v100). Quantising the val cache reproduces E0's
+  recorded full256 predictions **bit-exactly, 339/339**; the test cache, made
+  at evaluation, **338/338**. 16.6% of E0's raw output pixels are slightly
+  negative (min −0.030), essentially all background.
+* **Smoke**: 26/26 on real data — refiner input is exactly [X, Y0]; initial
+  delta exactly 0 and Y == Y0; only the output conv has gradient at step 1,
+  every layer from step 2; E0 unchanged, no gradient, not in the optimizer;
+  metric path identical to predict_phase3 + skimage.
+* **Training**: job 1813217 (v100; first submitted to rtx3080 as 1813124 and
+  cancelled before starting, at the author's request). **Early stop at 8,500
+  updates** (5 non-improving checks, ≥ 3,000), 22.3 epochs, **5.5 min** wall
+  including validation, peak 1.26 GiB. **Selected update 6,000** (not the
+  identity). Training L1 barely moved (0.0318 at 100 → 0.0309).
+* **Evaluation**: job 1813693 (v100), 2 min 36 s, both splits, unchanged
+  `masked_metrics.py`. The E0 side reproduces E0's recorded per-image PSNR with
+  max difference 0.0 dB on both splits.
+
+### Results — full256, B = E0 + refiner minus A = E0
+
+Paired 95% bootstrap intervals and Wilcoxon are **sample-level uncertainty for
+this one trained run, not training-seed robustness.**
+
+| metric | val (n=339) | test (n=338) | test better / worse |
+|---|---|---|---|
+| whole-image PSNR | **+0.139** [+0.075, +0.206], p=4.3e-04 | **+0.193** [+0.124, +0.264], p=7.6e-06 | 189 / 149 |
+| foreground PSNR (gt > 0.01) | **−0.167** [−0.220, −0.111], p=3.9e-09 | **−0.127** [−0.183, −0.071], p=8.1e-06 | 124 / 214 |
+| whole-image SSIM | +0.0057 | +0.0069 [+0.0056, +0.0082] | 246 / 92 |
+| foreground SSIM | −0.0105 | **−0.0106** [−0.0121, −0.0091] | 61 / 277 |
+| background MAE | 0.01058 → 0.00734 | 0.01101 → 0.00763 | 338 / 0 |
+| background RMSE | 0.0423 → 0.0338 | 0.0434 → 0.0346 | 338 / 0 |
+| background pixels > 0.05 | 5.5% → 3.9% | 5.8% → 4.2% | 338 / 0 |
+
+Absolute test values: E0 21.8725 → 22.0654 whole-image; foreground 17.599 →
+17.473. Validation 22.0767 → 22.2153 (the validation figure is the one
+selection picked from 17 checks, so it is optimistic; test is the clean read).
+
+**What the correction does, measured on the quantised outputs (test; val
+the same to two digits):** it **darkens**. 95.5% of foreground pixels get
+darker and 2.8% brighter; the mean signed foreground change is −0.022, and the
+foreground is darkened on net in **338/338** images (val 339/339). In the
+background, 0.4% of pixels get brighter. E0 already under-predicts the
+foreground on average (mean E0 − target −0.013 on test), so the darkening adds
+foreground error while removing E0's residual background haze. The correction
+is weakly aligned with the true residual (correlation +0.17 over the frame,
++0.11 in the foreground). Why L1 training settles on this is not measured and
+is not claimed.
+
+**Sidelobes: none reintroduced.** In the background the correction is
+anti-correlated with (X − Y0), mean −0.17 (val −0.19): it moves the background
+away from the noisy frame, and no background pixel indicator got worse on any
+image.
+
+**Recovery of weak, measurement-supported structure: not observed.** In the
+228 validation recovery windows fixed before training (E0 retained ≤ 60% of a
+weak target structure that the blurred noisy frame still shows), retention
+FELL from 0.42 to 0.35 and window PSNR fell by −0.63 dB (median −0.54),
+improving in 6 of 228 windows. In the 191 control windows (no clear noisy
+support) the pattern is the same: 0.33 → 0.23, −0.66 dB, 14 of 191 improved.
+**There is no recovery-versus-control contrast**, which is what
+measurement-supported recovery would have required. The four pre-declared
+recovery cases (6689, 1918, 2708, 2886) show no restored stripe in any
+refined panel; the correction there is small and negative. The two typical
+cases gain slightly (2906: window 21.18 → 21.57 dB; 1076: 30.06 → 30.12).
+Post hoc, the validation PSNR changes range from −1.38 dB (0977) to +2.04 dB
+(0802), median +0.09.
+
+### Verdict, with the fields kept separate
+
+  * **Practical target (+0.10 dB, test full256):** OBSERVED +0.193; RELIABLE
+    yes (interval excludes zero, validation +0.139 same sign); EXCEEDS yes.
+  * **But it is a TRADE-OFF, reported as one:** the whole-frame gain comes with
+    a significant, replicated **foreground loss** (PSNR −0.127 test, −0.167
+    val; foreground SSIM worse on 277/338). The gain is background cleanup; the
+    object, where the structures are, gets worse.
+  * **On the question the experiment asked — recovering measurement-supported
+    structures E0 weakened — the answer from this run is no.** Nothing in the
+    window analysis or the panels shows it, and the refiner removes more of
+    those structures than E0 did. Absence of recovery here is a result for this
+    refiner, loss and recipe; it does not show that no second stage could do it.
+
+### Pre-registered guesses, scored
+
+| guess | result | verdict |
+|---|---|---|
+| test full256 +0.1 to +0.5 dB | +0.193 | **correct** |
+| recovery windows gain more than control windows | both lose, −0.63 vs −0.66 dB | **wrong** |
+| no sidelobe signature (background corr ≤ 0) | −0.17 | **correct** |
+
+The registered confound — that a full-frame gain could come from something
+other than structure recovery — is what happened, though the observed route is
+darkening, not the full-frame scale deficit that was named. Stated as an
+observation.
+
+### Limitations, as registered
+
+The refiner was trained on E0 outputs for images E0 had seen (as 128 crops);
+the pipeline gets extra supervised training; this does not show E0 trained
+further, or at 256, would not do the same; one run cannot separate the value of
+access to X from the architecture (no Y0-only control); single seed, and the
+bilinear backward is not bit-deterministic. Only full256 was evaluated, by the
+brief's design; the project's both-protocols rule concerns the DINO arms.
+No control or follow-up run is started.
