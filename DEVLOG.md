@@ -3377,3 +3377,214 @@ access to X from the architecture (no Y0-only control); single seed, and the
 bilinear backward is not bit-deterministic. Only full256 was evaluated, by the
 brief's design; the project's both-protocols rule concerns the DINO arms.
 No control or follow-up run is started.
+
+## Step 52 — Foreground-balanced refiner: a real foreground gain, and still no recovery of missing structure (2026-09-15)
+
+**One follow-up to Step 51, requested by the author**, outside the DINO study
+(the brief was drafted in a ChatGPT-assisted discussion). Question: did
+refiner_e0 fail to recover weak structure *partly because* its loss and its
+checkpoint selection favoured the background? `Holo_E0_frozen_noisy_output_
+fgbalanced_refiner`, code in `dino_analysis_phases/refiner_fgbal/`; the
+pre-registration (commit 4553203) was written before training. **Exploratory:
+the test split was already inspected for refiner_e0, so the test read below is
+not an untouched confirmatory evaluation.** No other run was started. The final
+chains 1812561/2 were not touched.
+
+### What changed, and what did not
+
+Identical to refiner_e0, checked mechanically: frozen E0 (268,000), the same
+verified caches (sha256), the same U-Net (118,129 parameters), AdamW 1e-4 with
+cosine to 1e-6, 10,000-update budget, batch 16, seed 100, clip 1.0, float32,
+validation every 500, no augmentation. The initialisation was **bit-identical**
+to refiner_e0's step 0 on the GPU node (22/22 tensors).
+
+Changed:
+
+* **Loss:** 0.5·mean_fg|e| + 0.5·mean_bg|e|, with region means per image over
+  the image's own pixels. The foreground is gt > 0.01 (the study's mask),
+  checked on training targets: it contains the faint band, and nothing
+  structured lies below it.
+* **Selection:** validation foreground PSNR among checkpoints whose validation
+  background MAE and RMSE are no worse than E0's; E0 is the fallback.
+* **Early stopping:** follows the selection rule (derived).
+* **Checkpoints:** saved at every check.
+
+Jobs: training **1813720** (v100, 6.8 min, full 10,000 updates; all 20 checks
+eligible). Evaluation **1813729 failed** after 42 s on a bug of mine (the metrics
+folder was created after `masked_metrics.py` needed it), on validation, before
+any test prediction. Fixed, dry-run on validation on CPU, and rerun as
+**1813745** (1 min 16 s). The GPU window results equal the dry run at printed
+precision.
+
+### Selection: both rules, both runs (validation foreground PSNR)
+
+| | original rule (max whole-image PSNR) | new rule (eligible foreground PSNR) |
+|---|---|---|
+| refiner_e0 (whole-image L1) | update 6,000: **17.812** | none eligible beats E0 → **E0, 17.978** |
+| fg-balanced (region L1) | update 6,000: **18.130** | update 8,500: **18.145** (selected) |
+
+**Matched update 6,000:** 17.812 vs 18.130 (+0.318). Through that update the
+two runs share bit-identical initial weights, identical logged learning rates
+at all 60 logging points, identical caches and preprocessing, and identical
+optimiser, clipping, seeded batch-order and schedule code (only a comment
+differs). Batch order is not logged, so its identity is inferred from the code.
+The GPU node differed (tg074 / tg072, both v100). On this run the selection rule
+moves the new run by 0.015 dB, so **most of the foreground difference comes
+with the loss weighting, not the selection rule**. It is one seed: nothing here
+measures whether that gap would repeat across seeds.
+
+### Results — A frozen E0 · B refiner_e0 · C fg-balanced (full256)
+
+Paired differences with bootstrap 95% CIs and Wilcoxon (refiner_e0's
+procedure). **The intervals reflect image sampling only; each refiner is one
+training run and no training-seed variability is measured.**
+
+| metric | split | A | B | C | C − A [95% CI] | C better / worse | C − B |
+|---|---|---|---|---|---|---|---|
+| whole-image PSNR | val | 22.077 | 22.215 | 22.316 | +0.240 [+0.200, +0.281] | 254 / 85 | +0.101 |
+| | test | 21.873 | 22.065 | 22.154 | **+0.282** [+0.241, +0.323] | 267 / 71 | +0.089 |
+| foreground PSNR | val | 17.978 | 17.812 | 18.145 | +0.167 [+0.129, +0.206] | 234 / 105 | +0.333 |
+| | test | 17.599 | 17.473 | 17.809 | **+0.210** [+0.175, +0.245] | 257 / 81 | +0.336 |
+| foreground SSIM | val | 0.5686 | 0.5581 | 0.5723 | +0.0037 [+0.0029, +0.0045] | 255 / 84 | +0.0142 |
+| | test | 0.5598 | 0.5492 | 0.5636 | **+0.0038** [+0.0030, +0.0046] | 251 / 87 | +0.0144 |
+| whole-image SSIM | val | 0.7828 | 0.7884 | 0.7794 | −0.0034 [−0.0039, −0.0028] | 86 / 253 | −0.0090 |
+| | test | 0.7829 | 0.7898 | 0.7789 | **−0.0040** [−0.0045, −0.0034] | 71 / 267 | −0.0108 |
+| background MAE | val | 0.01058 | 0.00734 | 0.01009 | −0.00049 [−0.00082, −0.00022] | 120 / 219 | +0.00275 |
+| | test | 0.01101 | 0.00763 | 0.01059 | −0.00043 [−0.00074, −0.00015] | **113 / 225** | +0.00296 |
+| background RMSE | val | 0.0423 | 0.0338 | 0.0389 | −0.0034 [−0.0041, −0.0029] | 258 / 81 | +0.0051 |
+| | test | 0.0434 | 0.0346 | 0.0399 | −0.0035 [−0.0042, −0.0029] | 263 / 75 | +0.0053 |
+| background pixels > 0.05 | test | 5.79% | 4.17% | 6.52% | +0.73 points | **33 / 305** | |
+| background pixels > 0.10 | test | 3.97% | 2.67% | 3.73% | −0.24 points | 174 / 162 | |
+
+Validation agrees in sign with test on every line. Where the correction goes
+(test; validation within 0.01): mean signed foreground change −0.010, 22.1% of
+foreground pixels brighter, 8.8% of background pixels brighter; the correlation
+of the correction with (X − Y0) in the background is **+0.063** (val +0.049), a
+weak tendency towards the noisy frame; the correlation with the true residual
+in the foreground is +0.27.
+
+### Fixed windows (validation; chosen before refiner_e0 was trained)
+
+Scored from quantised outputs. Target correlation was **defined in every
+window** (0 undefined in all three methods and both groups), so the two
+conventions for constant windows (exclude / score 0) give identical numbers.
+Retention is an **intensity** measure, not evidence of geometric recovery.
+
+| | recovery (228) E0 / B / C | C − E0 [95% CI] | control (191) E0 / B / C | C − E0 [95% CI] |
+|---|---|---|---|---|
+| window PSNR | 16.86 / 16.23 / 16.83 | −0.03 [−0.08, +0.01] | 16.83 / 16.17 / 16.83 | +0.00 [−0.06, +0.06] |
+| window MAE | 0.100 / 0.108 / 0.102 | +0.0014 [+0.0009, +0.0019] | 0.113 / 0.120 / 0.114 | +0.0003 [−0.0007, +0.0014] |
+| target correlation | 0.728 / 0.703 / 0.740 | +0.012 [+0.008, +0.016] | 0.485 / 0.467 / 0.501 | +0.016 [+0.009, +0.022] |
+| retention (intensity) | 0.421 / 0.352 / 0.415 | −0.006 [−0.010, −0.003] | 0.332 / 0.231 / 0.325 | −0.007 [−0.014, −0.000] |
+| false additions (> target + 0.05) | 3.2% / 1.9% / 3.6% | +0.3 points | 7.6% / 4.2% / 7.9% | +0.3 points (n.s.) |
+| missing-structure fill* | 1.3% / 0.7% / 5.4% | +4.1 points (224/228) | 2.3% / 0.8% / 7.2% | +4.8 points (173/188) |
+
+\* pixels with target > 0.05 where E0 < 0.02 (E0 removed them): Σprediction /
+Σtarget. The balanced refiner lifts 19% (recovery) and 24% (control) of those
+pixels above 0.02.
+
+**Contrast (recovery − control) of C − E0:** correlation −0.003, window PSNR
+−0.036, retention +0.001. **None.**
+
+**The groups do not start from the same place**, which limits what the contrast
+can show. By construction, noisy support is 0.71 against 0.06. E0 also starts
+higher in the recovery group (correlation 0.73 against 0.49, retention 0.42
+against 0.33) at similar target brightness (0.158, 0.145). Control windows
+therefore have more room to gain correlation, and both groups were chosen where
+E0 failed. A null contrast is consistent with no measurement-specific recovery
+but is a weak test of it. The absolute numbers carry the main message: window
+PSNR does not move in either group.
+
+### Local corrections inside the windows (added analysis, author-requested)
+
+`analyze_windows_local.py`, written before any fg-balanced window output was
+viewed and not part of the pre-registration. Descriptive. A pixel counts as
+changed if |C − E0| > 0.005.
+
+| per window, mean | recovery | control |
+|---|---|---|
+| pixels brightened | 16.2% (mean +0.020) | 20.8% (+0.019) |
+| … of which error fell | 77% | 69% |
+| … target-supported (target > E0 and > 0.01) | 12.4% of pixels | 14.7% |
+| … unsupported | 3.8% | 6.1% |
+| … overshooting the target by > 0.05 | 1.4% | 2.3% |
+| pixels darkened | 18.0% (mean −0.022) | 23.1% (−0.021) |
+| … of which error fell | 20% | 29% |
+| … darkening weak structure (target > E0) | 14.7% | 15.4% |
+| … justified (E0 > target) | 3.3% | 7.7% |
+| existing structure (target > 0.05, E0 ≥ 0.02): mean change | −0.008 | −0.006 |
+
+refiner_e0, for comparison, brightened no window pixel and darkened 31%
+(recovery) and 43% (control); 25% and 30% of pixels were darkened weak
+structure.
+
+**Reading, without forcing one explanation.** The evidence is mixed:
+
+* **target-supported brightening exists**: most brightening reduces error,
+  but it is small (+0.02) and fills about 5% of the missing intensity;
+* it happens **as much in control windows**, where the noisy frame gives no
+  support, so it is not shown to come from the measurement;
+* **suppression of weak structure continues** on about 15% of window pixels,
+  and there it mostly increases error;
+* **some unsupported signal** appears: 4–6% of window pixels, overshoot
+  1.4–2.3%, more background pixels above 0.05, and a weak positive background
+  correlation with the noisy residual;
+* **not mainly a brightness change on existing structure**: the mean change
+  there is −0.008.
+
+The net effect on the windows is close to zero. The balanced objective
+removed most of refiner_e0's *extra* suppression (retention back to E0's level
+from 0.35); it did not add structure beyond E0.
+
+### Figures (validation, same pre-declared cases, identical limits)
+
+`refiner_fgbal/results/figures/`: `cases_val_enlarged_all_methods.png` (full
+frame, then 96x96 enlargements: noisy | target | E0 | refiner_e0 | fg-balanced
+| both corrections | three error maps; images gamma 0.5 on [0,1], corrections
+±0.15, errors ±0.30), `cases_val_three_way.png`, and
+`posthoc_val_three_way.png` (post hoc, labelled).
+
+What they show:
+
+* **Recovery cases 6689, 1918, 2708, 2886:** the stripes E0 erased are absent
+  in all three outputs; the error maps are practically identical. The
+  balanced correction inside the windows is near zero. Correlation moves both
+  ways (2886: 0.67 → 0.71; 2708: 0.31 → 0.20) while intensity stays near zero,
+  so at these levels correlation tracks tiny changes and is ambiguous, not
+  evidence of structure.
+* **Control 2547:** the balanced refiner adds a faint positive rim along the
+  lower object edge, outside the missing bar; the correlation falls −0.11 →
+  −0.21. **Control 4158:** unchanged.
+* **Typical cases:** small gains for both refiners (2906: 21.18 → 21.52; 1076:
+  30.06 → 30.23); the balanced refiner darkens less than refiner_e0.
+* **Post hoc:** the recurring pattern is interior darkening with a thin bright
+  rim at object outlines — the likely source of the extra background pixels
+  above 0.05. The worst frame (3508, foreground −1.07 dB) has target pillars
+  that no method recovers.
+
+### Verdict
+
+| question | verdict |
+|---|---|
+| better overall denoising? | **mixed**: whole-image PSNR up (+0.28 test, +0.24 val, reliable) but whole-image SSIM down (−0.004, worse on 267/338) |
+| better foreground reconstruction? | **supported**: foreground PSNR +0.21 test / +0.17 val, above the +0.10 target and reliable; foreground SSIM +0.004 on both splits |
+| recovery of previously missing structure? | **unsupported**: missing structures stay missing in every case shown; window PSNR does not move; missing fill 5% of intensity, equally in control windows. **This foreground-balanced refiner did not improve structure recovery under the tested setup.** |
+| acceptable background preservation? | **uncertain**: the registered constraint is met (mean MAE and RMSE no worse than E0, on both splits, and RMSE better on 263/338), but per image MAE is worse on 225/338, pixels above 0.05 increase on 305/338, and the correction leans slightly towards the noisy frame |
+
+On the question asked: objective alignment explains **refiner_e0's extra
+foreground suppression** (on one seed, mostly the loss). It does **not**
+explain the absence of weak-structure recovery, which persists once the
+objective is balanced. None of this shows the information is absent from the
+measurement, that refinement is impossible, or that a larger network would
+recover it.
+
+Pre-registered guess ("E0 fallback, or a small foreground gain carried mainly
+by brightening, with no recovery-over-control contrast"): **half right**.
+There was no contrast, but there was no fallback, and the gain was not carried
+by brightening.
+
+**Recommendation: record as a limited result and stop.** A small, cheap
+foreground refinement (118,129 parameters, 0.45% of E0's trainable
+parameters) with a background cost that is small in mean but widespread per
+image, and no structure recovery. It stays outside the thesis's main line; at
+most a short note on objective alignment. No further run is proposed.
