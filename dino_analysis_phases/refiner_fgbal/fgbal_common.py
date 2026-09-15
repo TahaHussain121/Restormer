@@ -37,7 +37,8 @@ import refiner_common as rc                                   # noqa: E402
 EXP = 'Holo_E0_frozen_noisy_output_fgbalanced_refiner'
 EXP_DIR = os.path.join(rc.REPO, 'experiments', EXP)
 MODEL_DIR = os.path.join(EXP_DIR, 'models')
-RESULTS = os.path.join(HERE, 'results')                       # gitignored
+# gitignored. FGBAL_RESULTS redirects outputs for a dry run (never for a real one).
+RESULTS = os.environ.get('FGBAL_RESULTS', os.path.join(HERE, 'results'))
 CONFIG = os.path.join(HERE, 'configs', 'refiner_fgbal.yml')
 SELECTION_JSON = os.path.join(EXP_DIR, 'selection.json')
 

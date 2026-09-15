@@ -12,6 +12,7 @@ refiner_e0/qualitative_cases.json before either refiner was trained; nothing is
 re-selected. All three methods are scored from their uint16-quantised outputs.
 """
 
+import argparse
 import csv
 import json
 import os
@@ -30,6 +31,7 @@ from refiner_arch import ResidualRefinerUNet                        # noqa: E402
 
 LOWER = ['bg_mae', 'bg_rmse', 'bg_frac_pred_gt_0p05', 'bg_frac_pred_gt_0p10']
 W = 48
+DEV, SPLITS = 'cuda', ('val', 'test')           # --device / --splits; cpu+val only for a dry run
 GAMMA, DMAX, EMAX = 0.5, 0.15, 0.30
 
 
@@ -50,7 +52,14 @@ def window(g, p, e0, cy, cx):
 
 
 def main():
+    global DEV, SPLITS
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--device', default='cuda')
+    ap.add_argument('--splits', nargs='+', default=['val', 'test'], choices=['val', 'test'])
+    args = ap.parse_args()
+    DEV, SPLITS = args.device, tuple(args.splits)
     rc.strict_fp32()
+    os.makedirs(os.path.join(fc.RESULTS, 'metrics'), exist_ok=True)
     with open(fc.SELECTION_JSON) as f:
         sel = json.load(f)
     t_sel = sel['new_rule']['selected_update']
@@ -58,7 +67,7 @@ def main():
                     weights_only=False)
     if ck['update'] != t_sel:
         raise SystemExit('refiner_selected.pth does not match selection.json')
-    net = ResidualRefinerUNet().to('cuda')
+    net = ResidualRefinerUNet().to(DEV)
     net.load_state_dict(ck['params'], strict=True)
     net.eval()
     print(f'selected update {t_sel}{" (E0 fallback: identity)" if t_sel == 0 else ""}')
@@ -68,8 +77,8 @@ def main():
                           'NOT training-seed variability',
            'test_note': 'the test split was already inspected for refiner_e0; this is '
                         'not a new untouched holdout',
-           'splits': {}, 'device': rc.device_record('cuda'), 'created': rc.now()}
-    for split in ('val', 'test'):
+           'splits': {}, 'device': rc.device_record(DEV), 'created': rc.now()}
+    for split in SPLITS:
         ids = rc.split_ids(split)
         y0, _, _ = rc.load_cache(split, ids)
         xu, gu = rc.load_split_uint16(split, ids)
@@ -78,8 +87,8 @@ def main():
         extra = {}
         with torch.no_grad():
             for s in range(0, len(ids), 16):
-                x = torch.from_numpy(rc.to_unit(xu[s:s + 16]))[:, None].cuda()
-                yb = torch.from_numpy(np.ascontiguousarray(y0[s:s + 16]))[:, None].cuda()
+                x = torch.from_numpy(rc.to_unit(xu[s:s + 16]))[:, None].to(DEV)
+                yb = torch.from_numpy(np.ascontiguousarray(y0[s:s + 16]))[:, None].to(DEV)
                 y, d = net(x, yb)
                 y, d = y[:, 0].cpu().numpy(), d[:, 0].cpu().numpy()
                 for j in range(y.shape[0]):
@@ -162,7 +171,8 @@ def main():
                 a = np.array([w_[stat] for w_ in per['E0']])
                 b = np.array([w_[stat] for w_ in per[k]])
                 ok = np.isfinite(a) & np.isfinite(b)
-                out[f'{k}_minus_E0_{stat}'] = paired(a[ok], b[ok], stat not in ('false_add_frac',))
+                out[f'{k}_minus_E0_{stat}'] = (paired(a[ok], b[ok], stat not in ('false_add_frac',))
+                                               if ok.sum() > 1 else None)
         win[grp] = out
         print(f'\n{grp} windows (n={out["n_windows"]}):')
         for stat in ('retention', 'target_corr', 'psnr', 'false_add_frac'):
@@ -187,8 +197,8 @@ def main():
     def delta(i):
         k = pos[i]
         with torch.no_grad():
-            return net(torch.from_numpy(rc.to_unit(xv[k]))[None, None].cuda(),
-                       torch.from_numpy(np.ascontiguousarray(y0v[k]))[None, None].cuda())[1][0, 0].cpu().numpy()
+            return net(torch.from_numpy(rc.to_unit(xv[k]))[None, None].to(DEV),
+                       torch.from_numpy(np.ascontiguousarray(y0v[k]))[None, None].to(DEV))[1][0, 0].cpu().numpy()
 
     cols = ['noisy', 'clean target', 'E0', 'original refiner', 'fg-balanced refiner',
             'fg-bal correction', 'fg-bal - target']
