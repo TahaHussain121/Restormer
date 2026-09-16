@@ -3588,3 +3588,99 @@ foreground refinement (118,129 parameters, 0.45% of E0's trainable
 parameters) with a background cost that is small in mean but widespread per
 image, and no structure recovery. It stays outside the thesis's main line; at
 most a short note on objective alignment. No further run is proposed.
+
+## Step 53 — The two FINAL arms evaluated: multi-level injection HURTS both operators, and the training study closes (2026-09-16)
+
+Both final chains finished 300,000 iterations (chain count 2, `TRAINING_DONE`,
+no stability failure, every injection site finite at the last logged step; site
+ratios settled at pl/d3/d2 = 0.35/0.79/0.78 for addition and 0.21/0.59/0.43 for
+ACA, having started above 1.0 at the decoder sites in the 2k smoke).
+**Validation-only selection** (the test split never drove it): multi-level
+addition **236,000** (in-loop 8-bit val 23.928, top-5 spread 0.084), multi-level
+ACA **276,000** (24.126, spread 0.035). Eight evaluation cells, jobs
+1814322-1814329 on v100, all `EVAL DONE`; a100 was checked at the author's
+request and was four days out, so the pair kept the same evaluation hardware as
+every earlier arm. Analysis: `final_matched_pair.py` with its registered
+defaults -> `results/comparisons/final_matched_pair.json`.
+
+### The 2x2 cells (uint16 convention)
+
+full256 PSNR, foreground PSNR in brackets:
+
+| | post-latent only | + decoder 3 + decoder 2 |
+|---|---|---|
+| **addition, val** | **24.433** (20.106) | 23.932 (19.662) |
+| **addition, test** | **24.387** (19.891) | 23.869 (19.457) |
+| **ACA, val** | 24.295 (20.002) | 24.128 (19.940) |
+| **ACA, test** | 24.139 (19.699) | 23.961 (19.610) |
+
+crop128 PSNR: val 22.276 / 22.274 / 22.058 / 22.170; test 22.267 / 22.196 /
+21.999 / 22.111 (same cell order).
+
+### The registered comparisons (paired per image, full256 primary)
+
+| | test full256 | 95% CI | p | val full256 | test crop128 |
+|---|---|---|---|---|---|
+| **A** ml_add - pl_add | **-0.518** | [-0.623, -0.417] | 6.5e-20 | -0.501 | -0.071 (n.s.) |
+| **B** ml_aca - pl_aca | **-0.178** | [-0.285, -0.067] | 5.4e-05 | -0.168 | +0.112 (n.s.) |
+| **C** ml_aca - ml_add | +0.092 | [-0.023, +0.209] | 0.055 | +0.195 | -0.084 (n.s.) |
+| **D** difference-in-differences | **+0.339** | [+0.209, +0.477] | 3.3e-06 | +0.333 | +0.184 |
+
+Verdict fields kept separate (primary test full256, threshold +0.10 dB):
+
+  * **A: observed -0.518, reliable (CI excludes zero, validation same sign),
+    and it is a LOSS, not an improvement.** Adding the two decoder sites to
+    post-latent addition costs half a dB. No crop128 trade-off: crop is flat.
+  * **B: observed -0.178, reliable, also a loss.** The same layout change costs
+    ACA less than it costs addition.
+  * **C: observed +0.092, NOT reliable** (interval includes zero, p = 0.055),
+    and it does not exceed +0.10. At the multi-level layout the ACA block is
+    **not shown to beat addition**; validation reads +0.195, test +0.092, so the
+    two splits do not agree in magnitude and the claim is not made.
+  * **D: observed +0.339, reliable, exceeds the threshold.** The interaction is
+    the one clear positive: **addition loses more from the extra sites than ACA
+    does.** That is a statement about how the two operators respond to the
+    layout, not about either being good.
+
+### What this settles
+
+  * **Repeated delivery of the same prior does not help; it hurts.** Both
+    operators are worse with the prior added again at decoder levels 3 and 2.
+    The registered expectation was "limited incremental benefit"; the direction
+    is worse than that, and it is recorded as a miss in magnitude, not a
+    confirmation.
+  * **Finding 6 is unchanged.** The operator still buys nothing that survives
+    both splits: at the single post-latent site ACA was significantly WORSE than
+    addition (-0.247, Step 50); at the multi-level layout the difference is not
+    reliable (+0.092, p = 0.055). Nowhere in this study does the ACA block
+    reliably beat plain addition.
+  * **The best arm is unchanged: post-latent addition at B6** (test 24.387),
+    with postlatent-B3 (24.480) not reliably separable from it (Step 50).
+  * **Capacity, with denominators.** Multi-level addition adds 516,768
+    parameters over E0 (total 26,640,820, +0.84% over post-latent addition's
+    26,419,348); multi-level ACA adds 1,910,535 (total 28,034,587, +6.11% over
+    it). Both spend more capacity for a reliable loss, so the losses cannot be
+    blamed on too little capacity.
+  * **Both protocols reported, as always.** The full256 losses do not appear on
+    crop128, where every cell sits within about 0.28 dB and no comparison is
+    reliable. The +0.25 tier's signature - gains only on full256 - now has a
+    mirror image: these losses are also full256-only.
+
+### Final configuration, recommended on VALIDATION evidence and complexity
+
+**`postlatent-render` (B6 prior, single injection after the eight latent blocks,
+plain addition).** Validation full256 24.433, the best of the four cells here
+and level with postlatent-B3 (+0.002, Step 50); crop128 22.276, losing nowhere.
+It is also the cheapest and simplest of the candidates: one injection site, one
+zero-initialised 1x1 projection, 295,296 added parameters (+1.13% of E0's
+26,124,052 total trainable), no attention block, one DINO extraction. Every
+alternative tested either costs more for no reliable gain (ACA, +3.99% total) or
+is reliably worse (multi-level, either operator). B3 instead of B6 is an equally
+defensible choice on the same evidence; B6 is kept for continuity with the depth
+study, and the two are not separable.
+
+**Single seed**, as throughout: the intervals measure image-to-image variation,
+and cross-split replication is the substitute for seed repeats. Every comparison
+above replicates in sign on validation.
+
+**The architecture training study is closed. No further training arm follows.**
