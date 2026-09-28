@@ -1,0 +1,85 @@
+### Starting TaskPrologue of job 1820618 on tg094 at Wed Sep 23 11:35:04 PM CEST 2026
+Running on cores 0-7 with governor ondemand
+Wed Sep 23 23:35:04 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 615.71.09              KMD Version: 615.71.09     CUDA UMD Version: 13.4     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA A100-SXM4-40GB          On  |   00000000:41:00.0 Off |                    0 |
+| N/A   40C    P0             56W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+### Finished TaskPrologue
+
+checkpoint: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/exp_masked_completion_20260923_230645_730d77/checkpoints/ckpt_update_002500.pth (update 2500, 118273 params)  [pre-registered selection]
+  synthetic 16/339
+  synthetic 96/339
+  synthetic 176/339
+  synthetic 256/339
+  synthetic 336/339
+  recovery 0/228
+  recovery 50/228
+  recovery 100/228
+  recovery 150/228
+  recovery 200/228
+  control 0/191
+  control 50/191
+  control 100/191
+  control 150/191
+
+wrote evaluation_summary.json in 233.2s; 3 windows skipped for an empty oracle mask
+wrote /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/exp_masked_completion_20260923_230645_730d77/results/figures/fixed_cases_oracle.png
+MASKED COMPLETION EVAL DONE
+checkpoint: /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/exp_masked_completion_20260923_230645_730d77/checkpoints/ckpt_update_005000.pth (update 5000, 118273 params)  [POST-HOC SENSITIVITY RUN]
+  synthetic 16/339
+  synthetic 96/339
+  synthetic 176/339
+  synthetic 256/339
+  synthetic 336/339
+  recovery 0/228
+  recovery 50/228
+  recovery 100/228
+  recovery 150/228
+  recovery 200/228
+  control 0/191
+  control 50/191
+  control 100/191
+  control 150/191
+
+wrote evaluation_summary_posthoc5000.json in 232.8s; 3 windows skipped for an empty oracle mask
+SENSITIVITY EVAL DONE
+=== JOB_STATISTICS ===
+=== current date     : Wed Sep 23 11:43:19 PM CEST 2026
+= Job-ID             : 1820618 on tinygpu
+= Job-Name           : mcomp_ev
+= Job-Command        : /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/exp_masked_completion_20260923_230645_730d77/code/run_eval.sh
+= Initial workdir    : /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer
+= Queue/Partition    : a100
+= Slurm account      : iwnt with QOS=normal
+= Requested resources:  for 01:30:00
+= Elapsed runtime    : 00:08:16
+= Total RAM usage    : 1.6 GiB of requested  GiB (%)   
+= Node list          : tg094
+= Subm/Elig/Start/End: 2026-09-23T23:35:02 / 2026-09-23T23:35:02 / 2026-09-23T23:35:03 / 2026-09-23T23:43:19
+======================
+=== Quota infos ======
+    Path                 Used     SoftQ    HardQ    Gracetime  Filec    FileQ    FiHaQ    FileGrace    
+    /home/woody           836.3G  1000.0G  1500.0G        N/A     231K   5,000K   7,500K        N/A    
+    /home/hpc              31.2G   104.9G   209.7G        N/A      83K     500K   1,000K        N/A    
+    /home/vault             0.0K  1048.6G  2097.2G        N/A       1      200K     400K        N/A    
+======================
+=== GPU utilization ==
+gpu_name, gpu_bus_id, pid, gpu_utilization [%], mem_utilization [%], max_memory_usage [MiB], time [ms]
+NVIDIA A100-SXM4-40GB, 00000000:41:00.0, 298501, 0 %, 0 %, 1270 MiB, 234576 ms
+NVIDIA A100-SXM4-40GB, 00000000:41:00.0, 298702, 0 %, 0 %, 1270 MiB, 233609 ms

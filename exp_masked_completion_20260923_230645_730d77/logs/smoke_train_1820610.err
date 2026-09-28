@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/exp_masked_completion_20260923_230645_730d77/code/smoke_completion.py", line 230, in <module>
+    main()
+  File "/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/exp_masked_completion_20260923_230645_730d77/code/smoke_completion.py", line 150, in main
+    q_in, q_out = mc.quantize_np(yin[:, 0].cpu().numpy()), mc.quantize_np(y1[:, 0].cpu().numpy())
+                                                                          ^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Can't call numpy() on Tensor that requires grad. Use tensor.detach().numpy() instead.

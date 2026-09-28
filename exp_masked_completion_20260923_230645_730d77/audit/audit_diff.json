@@ -1,0 +1,22 @@
+{
+ "removed": [],
+ "added": [],
+ "content_or_size_changed": [],
+ "mtime_changed_content_same": [],
+ "git_before": {
+  "branch": "dino_e2",
+  "head": "b0c16f00de8bb324f465614063fc53e9ff625d75",
+  "index_hash": "f8cef529bc53d4c618017b8f5808f8dbca66c660",
+  "status_porcelain": " M dino_analysis_phases/phase3_restoration/scripts/make_arm_panel.py\n?? dino_analysis_phases/phase3_restoration/scripts/make_final_three_way_figure.py\n?? exp_masked_completion_20260923_230645_730d77/\n?? thesis_results_2026-09-17/"
+ },
+ "git_after": {
+  "branch": "dino_e2",
+  "head": "b0c16f00de8bb324f465614063fc53e9ff625d75",
+  "index_hash": "f8cef529bc53d4c618017b8f5808f8dbca66c660",
+  "status_porcelain": " M dino_analysis_phases/phase3_restoration/scripts/make_arm_panel.py\n?? dino_analysis_phases/phase3_restoration/scripts/make_final_three_way_figure.py\n?? exp_masked_completion_20260923_230645_730d77/\n?? thesis_results_2026-09-17/"
+ },
+ "git_identical": true,
+ "n_files_before": 102975,
+ "n_files_after": 102975,
+ "coverage_note": "Record (or audit) the state of EXISTING repository files and reused artifacts.\n\nRead-only. Writes ONLY inside the experiment root. Run twice: once before any\nother action (--mode before) and once at the end (--mode after), then --mode\ndiff to compare.\n\nCoverage, stated honestly:\n  * full sha256 for every file <= 64 MiB under the listed trees;\n  * for larger files: size, mtime and sha256 of the first and last 8 MiB\n    (a partial fingerprint, not a full hash);\n  * the dataset tree is fingerprinted by size+mtime only for the train split\n    (12,202 files) and fully hashed for val/test clean+verynoisy.\nAnything outside the listed trees is NOT covered."
+}

@@ -1,0 +1,65 @@
+### Starting TaskPrologue of job 1820610 on tg096 at Wed Sep 23 11:24:06 PM CEST 2026
+Running on cores 32-39 with governor ondemand
+Wed Sep 23 23:24:06 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 610.57.04              KMD Version: 610.57.04     CUDA UMD Version: 13.3     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA A100-SXM4-40GB          On  |   00000000:41:00.0 Off |                    0 |
+| N/A   39C    P0             55W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+### Finished TaskPrologue
+
+PASS  write paths outside the root are refused   [('/tmp/should_not_write.txt', 'refused'), ('/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/refiner_e0/X.txt', 'refused'), ('/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/exp_masked_completion_20260923_230645_730d77/../escape.txt', 'refused')]
+PASS  the root contains no symlink component
+PASS  train / validation membership is disjoint and unchanged   {'n_train': 6101, 'n_val': 339}
+PASS  E0 checkpoint resolves from existing provenance and its md5 matches   {'iter': 268000, 'md5': 'a7d094b5e56bc13fc9660034a7bc0775'}
+PASS  E0 cache opened read-only (memmap mode r)   {'shape': [339, 256, 256], 'dtype': 'float32'}
+PASS  training code never builds or imports E0
+PASS  parameter count is the declared 118,273   118273
+PASS  first convolution takes exactly 3 input channels
+PASS  the optimizer holds ONLY the completion network parameters and no E0 tensor   {'n_tensors': 22}
+PASS  preprocessing is uint16 / 65535 float32 in [0,1], 256x256
+PASS  the damaged image equals the clean target EXACTLY outside the mask
+PASS  damage only removes intensity (no brightening inside the mask)
+PASS  the recipe produced compact holes, bands AND background-only masks   {'kinds': ['band', 'ellipse', 'rect'], 'n_damaged_regions': 43, 'n_background_regions': 17, 'modes': ['attenuate', 'erase']}
+PASS  the network input is exactly concat(X, Y_in, M) in that order
+PASS  ground truth is NOT among the inputs
+PASS  at initialisation delta == 0 and Y_out == Y_in exactly
+PASS  with non-zero weights, pixels outside the mask are bit-identical to the input
+SMOKE FAILED - not training
+=== JOB_STATISTICS ===
+=== current date     : Wed Sep 23 11:24:32 PM CEST 2026
+= Job-ID             : 1820610 on tinygpu
+= Job-Name           : mcomp_tr
+= Job-Command        : /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/exp_masked_completion_20260923_230645_730d77/code/run_smoke_train_anygpu.sh
+= Initial workdir    : /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer
+= Queue/Partition    : a100
+= Slurm account      : iwnt with QOS=normal
+= Requested resources:  for 01:00:00
+= Elapsed runtime    : 00:00:29
+= Total RAM usage    : 1.1 GiB of requested  GiB (%)   
+= Node list          : tg096
+= Subm/Elig/Start/End: 2026-09-23T23:24:03 / 2026-09-23T23:24:03 / 2026-09-23T23:24:03 / 2026-09-23T23:24:32
+======================
+=== Quota infos ======
+    Path                 Used     SoftQ    HardQ    Gracetime  Filec    FileQ    FiHaQ    FileGrace    
+    /home/hpc              31.4G   104.9G   209.7G        N/A      83K     500K   1,000K        N/A    
+    /home/woody           836.3G  1000.0G  1500.0G        N/A     231K   5,000K   7,500K        N/A    
+    /home/vault             0.0K  1048.6G  2097.2G        N/A       1      200K     400K        N/A    
+======================
+=== GPU utilization ==
+gpu_name, gpu_bus_id, pid, gpu_utilization [%], mem_utilization [%], max_memory_usage [MiB], time [ms]
+NVIDIA A100-SXM4-40GB, 00000000:41:00.0, 2527854, 0 %, 0 %, 2338 MiB, 17201 ms

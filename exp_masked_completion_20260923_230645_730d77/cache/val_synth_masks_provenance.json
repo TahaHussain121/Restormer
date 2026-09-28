@@ -1,0 +1,47 @@
+{
+ "file": "/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/exp_masked_completion_20260923_230645_730d77/cache/val_synth_masks.npz",
+ "seed": 4242,
+ "n_images": 339,
+ "recipe": {
+  "version": "fixed-2026-09-23",
+  "n_regions": [
+   1,
+   5
+  ],
+  "area_px_loguniform": [
+   25.0,
+   900.0
+  ],
+  "elongation_uniform": [
+   1.0,
+   5.0
+  ],
+  "shape_probs": {
+   "ellipse": 0.35,
+   "rect": 0.2,
+   "band": 0.45
+  },
+  "p_background_region": 0.25,
+  "p_erase_given_foreground": 0.6,
+  "erase_factor_uniform": [
+   0.0,
+   0.05
+  ],
+  "attenuate_factor_uniform": [
+   0.05,
+   0.4
+  ],
+  "fg_threshold": 0.01,
+  "background_margin_px": 6,
+  "doc": "The FIXED synthetic corruption recipe. Chosen once, from TRAINING data only\n(results/recipe_calibration.json), and not tuned afterwards.\n\nWhat it does, per clean target G (unit float32, 256x256):\n\n  n_regions ~ randint(1, 5)   regions per image\n  each region is one of\n      ellipse          compact hole                       p = 0.35\n      rectangle        compact hole, axis aligned          p = 0.20\n      band             oriented bar -> contiguous missing\n                       section of a structure              p = 0.45\n  size: area ~ loguniform(25, 900) px, elongation ~ U(1, 5), angle ~ U(0, pi)\n        (calibration: real E0-missing components have median area 26 px,\n         p75 68, p90 179, median bbox 6x8, elongation median 1.8 / p90 5.4,\n         ~29 components per image covering a median 2.2% of pixels)\n  placement:\n      p = 0.75  centre drawn from the FOREGROUND pixels (G > 0.01)\n      p = 0.25  centre drawn from deep BACKGROUND pixels (G <= 0.01 and at\n                least 6 px from any foreground pixel) -> a BACKGROUND-MASK\n                example: the mask is supplied but nothing was damaged, so a\n                mask never implies that an object belongs there\n  damage inside a foreground-placed region:\n      p = 0.60  erase      Y_dmg = G * u,  u ~ U(0.00, 0.05)   (near-zero,\n                           the E0 suppression signature: G > 0.05, E0 < 0.02)\n      p = 0.40  attenuate  Y_dmg = G * u,  u ~ U(0.05, 0.40)\n      one factor u per region, so the damage is a suppression, not only an\n      ideal rectangular hole\n  background-placed regions are NOT damaged (G there is already ~0).\n\nThe mask M is the union of all regions, damaged or not. Outside M the image is\nexactly G. Ground truth is used for supervision and to build the damage; it is\nNEVER an input channel.\n"
+ },
+ "mask_frac_mean": 0.012467781081795692,
+ "mask_frac_min": 0.0006103515625,
+ "mask_frac_max": 0.039947509765625,
+ "n_images_with_empty_mask": 0,
+ "mean_regions_per_image": 3.0029498525073746,
+ "mean_background_regions_per_image": 0.7168141592920354,
+ "images_with_at_least_one_background_region": 185,
+ "created": "2026-09-23T23:12:38.915546+02:00",
+ "git_commit": "b0c16f00de8bb324f465614063fc53e9ff625d75"
+}

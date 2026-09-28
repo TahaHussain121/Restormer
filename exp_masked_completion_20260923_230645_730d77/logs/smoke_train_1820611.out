@@ -1,0 +1,143 @@
+### Starting TaskPrologue of job 1820611 on tg096 at Wed Sep 23 11:25:22 PM CEST 2026
+Running on cores 32-39 with governor ondemand
+Wed Sep 23 23:25:22 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 610.57.04              KMD Version: 610.57.04     CUDA UMD Version: 13.3     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA A100-SXM4-40GB          On  |   00000000:41:00.0 Off |                    0 |
+| N/A   39C    P0             55W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+### Finished TaskPrologue
+
+PASS  write paths outside the root are refused   [('/tmp/should_not_write.txt', 'refused'), ('/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/dino_analysis_phases/refiner_e0/X.txt', 'refused'), ('/home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/exp_masked_completion_20260923_230645_730d77/../escape.txt', 'refused')]
+PASS  the root contains no symlink component
+PASS  train / validation membership is disjoint and unchanged   {'n_train': 6101, 'n_val': 339}
+PASS  E0 checkpoint resolves from existing provenance and its md5 matches   {'iter': 268000, 'md5': 'a7d094b5e56bc13fc9660034a7bc0775'}
+PASS  E0 cache opened read-only (memmap mode r)   {'shape': [339, 256, 256], 'dtype': 'float32'}
+PASS  training code never builds or imports E0
+PASS  parameter count is the declared 118,273   118273
+PASS  first convolution takes exactly 3 input channels
+PASS  the optimizer holds ONLY the completion network parameters and no E0 tensor   {'n_tensors': 22}
+PASS  preprocessing is uint16 / 65535 float32 in [0,1], 256x256
+PASS  the damaged image equals the clean target EXACTLY outside the mask
+PASS  damage only removes intensity (no brightening inside the mask)
+PASS  the recipe produced compact holes, bands AND background-only masks   {'kinds': ['band', 'ellipse', 'rect'], 'n_damaged_regions': 43, 'n_background_regions': 17, 'modes': ['attenuate', 'erase']}
+PASS  the network input is exactly concat(X, Y_in, M) in that order
+PASS  ground truth is NOT among the inputs
+PASS  at initialisation delta == 0 and Y_out == Y_in exactly
+PASS  with non-zero weights, pixels outside the mask are bit-identical to the input
+PASS  preservation survives the uint16 serialisation convention
+PASS  PNG round-trip is lossless and preserves the outside-mask pixels
+PASS  an EMPTY mask leaves the image exactly unchanged
+PASS  the masked loss handles an all-empty region without NaN   {'value': None, 'n_images': 0}
+PASS  with some empty masks the loss averages only over images that have one   {'n_images_with_region': 8, 'value': 0.45670750737190247}
+PASS  losses and gradients are finite for three real training steps   [{'step': 1, 'loss': 0.3631976246833801, 'grad_norm': 1.047257423400879, 'tensors_with_nonzero_grad': 2}, {'step': 2, 'loss': 0.3629798889160156, 'grad_norm': 0.8101115226745605, 'tensors_with_nonzero_grad': 22}, {'step': 3, 'loss': 0.3627273142337799, 'grad_norm': 0.8442989587783813, 'tensors_with_nonzero_grad': 22}]
+PASS  gradient reaches the zero-initialised output layer first, then every layer   [2, 22, 22]
+PASS  three steps changed the prediction only inside the mask
+PASS  the cache quantises to E0's recorded prediction bit-exactly
+PASS  the documented oracle-mask rule (target > 0.05 and E0 < 0.02) is non-degenerate   {'frac': 0.0143585205078125}
+PASS  no watched existing file changed during the smoke run
+
+28/28 checks passed
+write-path check passed for 7 destinations
+step 0 (identity): in-mask PSNR 26.3119 on 339 val images
+update   100  lr 9.998e-05  loss 0.200126  mask 0.181390  maskfg 0.218862  grad 5.500e+00
+update   200  lr 9.990e-05  loss 0.104632  mask 0.090336  maskfg 0.118929  grad 5.956e+00
+update   300  lr 9.978e-05  loss 0.096900  mask 0.083318  maskfg 0.110482  grad 7.964e+00
+update   400  lr 9.961e-05  loss 0.089185  mask 0.075923  maskfg 0.102447  grad 5.889e+00
+update   500  lr 9.939e-05  loss 0.085954  mask 0.074232  maskfg 0.097676  grad 7.237e+00
+  VAL   500  in-mask PSNR 21.5359  in-mask-fg 19.5827  MAE 0.07937  best 26.3119@0  streak 1
+update   600  lr 9.913e-05  loss 0.083500  mask 0.070691  maskfg 0.096309  grad 6.779e+00
+update   700  lr 9.881e-05  loss 0.075154  mask 0.063993  maskfg 0.086315  grad 6.106e+00
+update   800  lr 9.845e-05  loss 0.072834  mask 0.061889  maskfg 0.083779  grad 5.952e+00
+update   900  lr 9.804e-05  loss 0.071299  mask 0.060654  maskfg 0.081944  grad 6.699e+00
+update  1000  lr 9.758e-05  loss 0.068389  mask 0.057968  maskfg 0.078809  grad 4.419e+00
+  VAL  1000  in-mask PSNR 25.0888  in-mask-fg 21.7222  MAE 0.05491  best 26.3119@0  streak 2
+update  1100  lr 9.708e-05  loss 0.065296  mask 0.056407  maskfg 0.074185  grad 4.789e+00
+update  1200  lr 9.653e-05  loss 0.062818  mask 0.053221  maskfg 0.072415  grad 3.659e+00
+update  1300  lr 9.594e-05  loss 0.063971  mask 0.054358  maskfg 0.073584  grad 5.526e+00
+update  1400  lr 9.530e-05  loss 0.061642  mask 0.052346  maskfg 0.070938  grad 3.798e+00
+update  1500  lr 9.461e-05  loss 0.060168  mask 0.051072  maskfg 0.069265  grad 5.109e+00
+  VAL  1500  in-mask PSNR 26.2378  in-mask-fg 22.2916  MAE 0.05086  best 26.3119@0  streak 3
+update  1600  lr 9.388e-05  loss 0.059197  mask 0.049763  maskfg 0.068631  grad 4.285e+00
+update  1700  lr 9.311e-05  loss 0.061482  mask 0.052685  maskfg 0.070278  grad 5.799e+00
+update  1800  lr 9.230e-05  loss 0.057810  mask 0.049181  maskfg 0.066439  grad 4.315e+00
+update  1900  lr 9.145e-05  loss 0.055321  mask 0.046808  maskfg 0.063834  grad 4.330e+00
+update  2000  lr 9.056e-05  loss 0.057216  mask 0.048390  maskfg 0.066043  grad 4.760e+00
+  VAL  2000  in-mask PSNR 30.9745  in-mask-fg 23.2101  MAE 0.04616  best 30.9745@2000  streak 0
+update  2100  lr 8.962e-05  loss 0.056706  mask 0.048236  maskfg 0.065176  grad 4.617e+00
+update  2200  lr 8.865e-05  loss 0.053635  mask 0.044888  maskfg 0.062382  grad 4.410e+00
+update  2300  lr 8.764e-05  loss 0.055667  mask 0.047131  maskfg 0.064204  grad 4.889e+00
+update  2400  lr 8.659e-05  loss 0.053245  mask 0.045179  maskfg 0.061310  grad 3.476e+00
+update  2500  lr 8.551e-05  loss 0.053543  mask 0.045220  maskfg 0.061867  grad 5.683e+00
+  VAL  2500  in-mask PSNR 32.0986  in-mask-fg 23.7043  MAE 0.04321  best 32.0986@2500  streak 0
+update  2600  lr 8.440e-05  loss 0.053146  mask 0.045478  maskfg 0.060814  grad 4.846e+00
+update  2700  lr 8.325e-05  loss 0.054624  mask 0.046650  maskfg 0.062598  grad 4.577e+00
+update  2800  lr 8.206e-05  loss 0.052738  mask 0.044976  maskfg 0.060500  grad 4.261e+00
+update  2900  lr 8.085e-05  loss 0.051971  mask 0.044324  maskfg 0.059618  grad 4.544e+00
+update  3000  lr 7.961e-05  loss 0.051931  mask 0.044139  maskfg 0.059722  grad 4.053e+00
+  VAL  3000  in-mask PSNR 27.8556  in-mask-fg 23.8707  MAE 0.04285  best 32.0986@2500  streak 1
+update  3100  lr 7.834e-05  loss 0.051048  mask 0.043528  maskfg 0.058569  grad 3.713e+00
+update  3200  lr 7.704e-05  loss 0.052123  mask 0.044411  maskfg 0.059836  grad 5.187e+00
+update  3300  lr 7.571e-05  loss 0.050977  mask 0.042912  maskfg 0.059042  grad 4.003e+00
+update  3400  lr 7.436e-05  loss 0.050156  mask 0.042682  maskfg 0.057631  grad 4.055e+00
+update  3500  lr 7.299e-05  loss 0.048714  mask 0.041247  maskfg 0.056181  grad 4.721e+00
+  VAL  3500  in-mask PSNR 31.9103  in-mask-fg 24.3495  MAE 0.04000  best 32.0986@2500  streak 2
+update  3600  lr 7.159e-05  loss 0.049147  mask 0.041238  maskfg 0.057055  grad 3.987e+00
+update  3700  lr 7.017e-05  loss 0.047619  mask 0.040059  maskfg 0.055179  grad 3.487e+00
+update  3800  lr 6.874e-05  loss 0.047116  mask 0.040201  maskfg 0.054030  grad 2.940e+00
+update  3900  lr 6.728e-05  loss 0.049571  mask 0.041776  maskfg 0.057366  grad 4.302e+00
+update  4000  lr 6.581e-05  loss 0.046580  mask 0.039802  maskfg 0.053357  grad 3.234e+00
+  VAL  4000  in-mask PSNR 27.8853  in-mask-fg 24.3256  MAE 0.03989  best 32.0986@2500  streak 3
+update  4100  lr 6.432e-05  loss 0.047186  mask 0.039763  maskfg 0.054609  grad 3.914e+00
+update  4200  lr 6.283e-05  loss 0.046733  mask 0.039995  maskfg 0.053471  grad 3.528e+00
+update  4300  lr 6.131e-05  loss 0.046822  mask 0.039541  maskfg 0.054104  grad 3.676e+00
+update  4400  lr 5.979e-05  loss 0.046373  mask 0.039173  maskfg 0.053573  grad 3.693e+00
+update  4500  lr 5.826e-05  loss 0.045193  mask 0.038519  maskfg 0.051867  grad 3.528e+00
+  VAL  4500  in-mask PSNR 28.5515  in-mask-fg 24.6037  MAE 0.03855  best 32.0986@2500  streak 4
+update  4600  lr 5.672e-05  loss 0.046418  mask 0.039672  maskfg 0.053164  grad 4.480e+00
+update  4700  lr 5.517e-05  loss 0.045544  mask 0.038710  maskfg 0.052379  grad 4.031e+00
+update  4800  lr 5.362e-05  loss 0.044701  mask 0.037405  maskfg 0.051998  grad 3.022e+00
+update  4900  lr 5.207e-05  loss 0.045808  mask 0.038609  maskfg 0.053008  grad 3.638e+00
+update  5000  lr 5.052e-05  loss 0.044280  mask 0.036957  maskfg 0.051604  grad 3.816e+00
+  VAL  5000  in-mask PSNR 28.6972  in-mask-fg 24.7263  MAE 0.03810  best 32.0986@2500  streak 5
+
+DONE: early stop: 5 consecutive validation checks without improvement, at update 5000 (>= 3000). selected update 2500 (in-mask PSNR 32.0986); 5000 updates, 3.4 min
+MASKED COMPLETION TRAIN DONE
+=== JOB_STATISTICS ===
+=== current date     : Wed Sep 23 11:30:51 PM CEST 2026
+= Job-ID             : 1820611 on tinygpu
+= Job-Name           : mcomp_tr
+= Job-Command        : /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer/exp_masked_completion_20260923_230645_730d77/code/run_smoke_train_anygpu.sh
+= Initial workdir    : /home/woody/iwnt/iwnt174h/thesis_dino/code/Restormer
+= Queue/Partition    : a100
+= Slurm account      : iwnt with QOS=normal
+= Requested resources:  for 01:00:00
+= Elapsed runtime    : 00:05:28
+= Total RAM usage    : 4.3 GiB of requested  GiB (%)   
+= Node list          : tg096
+= Subm/Elig/Start/End: 2026-09-23T23:25:21 / 2026-09-23T23:25:21 / 2026-09-23T23:25:22 / 2026-09-23T23:30:50
+======================
+=== Quota infos ======
+    Path                 Used     SoftQ    HardQ    Gracetime  Filec    FileQ    FiHaQ    FileGrace    
+    /home/hpc              31.4G   104.9G   209.7G        N/A      83K     500K   1,000K        N/A    
+    /home/woody           836.3G  1000.0G  1500.0G        N/A     231K   5,000K   7,500K        N/A    
+    /home/vault             0.0K  1048.6G  2097.2G        N/A       1      200K     400K        N/A    
+======================
+=== GPU utilization ==
+gpu_name, gpu_bus_id, pid, gpu_utilization [%], mem_utilization [%], max_memory_usage [MiB], time [ms]
+NVIDIA A100-SXM4-40GB, 00000000:41:00.0, 2528120, 1 %, 0 %, 2926 MiB, 7857 ms
+NVIDIA A100-SXM4-40GB, 00000000:41:00.0, 2528152, 58 %, 22 %, 2588 MiB, 207919 ms
