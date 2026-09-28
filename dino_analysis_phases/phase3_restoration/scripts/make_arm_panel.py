@@ -52,6 +52,9 @@ ARMS = [
     ('priorquery-render', 'Holo_priorquery_render_fixed128_spatial_B6_latent',     'render, attn prior-Q'),
     ('affm-render',       'Holo_affm_render_fixed128_spatial_L3691_latent',        'layers {3,6,9,12}, add'),
     ('dinolight-render',  'Holo_dinolight_render_fixed128_L3691_aca_latent',       'layers {3,6,9,12}, ACA'),
+    ('postlatent-B6',     'Holo_postlatent_render_fixed128_B6',                    'post-latent, add'),
+    ('ml-addition',       'Holo_multilevel_addition_render_fixed128_B6',           'post-latent+d3+d2, add'),
+    ('ml-aca',            'Holo_multilevel_aca_render_fixed128_B6',                'post-latent+d3+d2, ACA'),
 ]
 
 
