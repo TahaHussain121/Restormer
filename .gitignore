@@ -71,3 +71,12 @@ slurm_*.log
 *.hdf5
 # keep the NIQE metric params (required by basicsr, not a data artifact)
 !basicsr/metrics/niqe_pris_params.npz
+
+# --- Per-run scratch caches (matplotlib, torch/hf homes, CUDA) ---
+.matplotlib_cache/
+exp_masked_completion_*/tmp/
+
+# --- Masked-completion audit snapshots (27.6 MB each) ---
+# Kept in the data backup (BACKUP_20260928), not in git;
+# audit/audit_diff.json records their comparison.
+exp_masked_completion_*/audit/snapshot_*.json
